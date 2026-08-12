@@ -51,10 +51,10 @@ st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자�
 st.title("📱 7기 출결 계산기")
 
 # 1. 오늘 날짜 기준 기본 월 지정
-today = datetime.date.today()
-current_month = max(5, min(12, today.month))
-month_options = [5, 6, 7, 8, 9, 10, 11, 12]
-default_month_idx = month_options.index(current_month) if current_month in month_options else 0
+today: datetime.date = datetime.date.today()
+current_month: int = max(5, min(12, today.month))
+month_options: List[int] = [5, 6, 7, 8, 9, 10, 11, 12]
+default_month_idx: int = month_options.index(current_month) if current_month in month_options else 0
 
 selected_month: int = st.selectbox(
     "📅 조회 월 선택",
@@ -67,7 +67,12 @@ base_info: Dict[str, Any] = attendance.calculate_attendance_tool(month=selected_
 max_official_limit: int = int(base_info['max_official_leave'])
 
 # 당월 확정 집계 계산
-cal_tardy, cal_early, cal_out, cal_absent, cal_official = 0, 0, 0, 0, 0
+cal_tardy: int = 0
+cal_early: int = 0
+cal_out: int = 0
+cal_absent: int = 0
+cal_official: int = 0
+
 for d_str, rec in st.session_state.daily_records.items():
     if datetime.datetime.strptime(d_str, "%Y-%m-%d").date().month == selected_month:
         st_val = rec.get("status", "")
@@ -77,7 +82,7 @@ for d_str, rec in st.session_state.daily_records.items():
         elif st_val == "🏃 조퇴": cal_early += 1
         elif st_val == "🚶 외출": cal_out += 1
 
-result = attendance.calculate_attendance_tool(
+result: Dict[str, Any] = attendance.calculate_attendance_tool(
     month=selected_month,
     absent_days=cal_absent,
     tardy_count=cal_tardy,
@@ -86,17 +91,17 @@ result = attendance.calculate_attendance_tool(
     official_leave_days=0
 )
 
-# 2. [최상단 배치] 📊 출결 현황판
+# 2. 📊 출결 현황판
 st.divider()
 st.subheader("📊 출결 현황판")
 
-total_days = int(result['total_days'])
-target_80_days = int(result['target_80_days'])
-max_allowed_absent = total_days - target_80_days
+total_days: int = int(result['total_days'])
+target_80_days: int = int(result['target_80_days'])
+max_allowed_absent: int = total_days - target_80_days
 
-converted_absent = (cal_tardy // 3) + (cal_early // 3) + (cal_out // 3)
-net_total_absent = cal_absent + converted_absent
-remaining_safe_absent = max(0, max_allowed_absent - net_total_absent)
+converted_absent: int = (cal_tardy // 3) + (cal_early // 3) + (cal_out // 3)
+net_total_absent: int = cal_absent + converted_absent
+remaining_safe_absent: int = max(0, max_allowed_absent - net_total_absent)
 
 m_col1, m_col2 = st.columns(2)
 with m_col1:
@@ -104,15 +109,14 @@ with m_col1:
 with m_col2:
     st.metric("현재 출석률", f"{result['attendance_rate']} %")
 
-rem_official_days = max_official_limit - cal_official
+rem_official_days: int = max_official_limit - cal_official
 st.caption(f"🏛️ **공가 사용 현황:** {cal_official}일 사용 / 총 {max_official_limit}일 가능 (남은 찬스: {rem_official_days}일)")
 
-# 지각/조퇴/외출 잔여 횟수 3분할 메트릭 시각화
 st.markdown("##### ⏳ 1결석 추가 차감까지 남은 찬스")
 c1, c2, c3 = st.columns(3)
-rem_tardy = 3 - (cal_tardy % 3) if (cal_tardy % 3) != 0 else 3
-rem_early = 3 - (cal_early % 3) if (cal_early % 3) != 0 else 3
-rem_out = 3 - (cal_out % 3) if (cal_out % 3) != 0 else 3
+rem_tardy: int = 3 - (cal_tardy % 3) if (cal_tardy % 3) != 0 else 3
+rem_early: int = 3 - (cal_early % 3) if (cal_early % 3) != 0 else 3
+rem_out: int = 3 - (cal_out % 3) if (cal_out % 3) != 0 else 3
 
 with c1:
     st.metric("⏰ 지각 잔여", f"{rem_tardy}회", help=f"현재 {cal_tardy}회 누적 중")
@@ -124,9 +128,9 @@ with c3:
 st.divider()
 
 # 3. 날짜별 출결 입력 및 저장
-min_date = datetime.date(2026, selected_month, 1)
-max_date = datetime.date(2026, 12, 31) if selected_month == 12 else datetime.date(2026, selected_month + 1, 1) - datetime.timedelta(days=1)
-default_picker_date = today if min_date <= today <= max_date else min_date
+min_date: datetime.date = datetime.date(2026, selected_month, 1)
+max_date: datetime.date = datetime.date(2026, 12, 31) if selected_month == 12 else datetime.date(2026, selected_month + 1, 1) - datetime.timedelta(days=1)
+default_picker_date: datetime.date = today if min_date <= today <= max_date else min_date
 
 selected_date: datetime.date = st.date_input(
     "👇 달력에서 날짜 선택",
@@ -158,11 +162,12 @@ current_used_official: int = sum(
     and rec.get("status") == "🏛️ 공가(공결)" and d_str != str_date
 )
 
-col_btn1, col_btn2 = st.columns(2)
-
-def save_and_sync():
-    json_data = json.dumps(st.session_state.daily_records, ensure_ascii=False)
-    encoded_data = urllib.parse.quote(json_data)
+def save_and_sync() -> None:
+    """
+    st.session_state의 출결 기록 데이터를 JSON 변환 후 LocalStorage 및 URL Query Params에 동기화합니다.
+    """
+    json_data: str = json.dumps(st.session_state.daily_records, ensure_ascii=False)
+    encoded_data: str = urllib.parse.quote(json_data)
     st.query_params["data"] = encoded_data
     st.query_params["synced"] = "1"
     components.html(f"""
@@ -170,6 +175,23 @@ def save_and_sync():
         localStorage.setItem('gwangju_ai_attendance', '{json_data}');
         </script>
     """, height=0)
+
+def delete_record_by_key(target_key: str) -> None:
+    """
+    지정된 날짜 키(YYYY-MM-DD)의 출결 기록을 session_state 및 LocalStorage에서 제거합니다.
+
+    Args:
+        target_key (str): 삭제 대상 날짜 문자열 (예: "2026-08-11")
+    """
+    assert isinstance(target_key, str), "target_key는 반드시 문자열 형태여야 합니다."
+    assert target_key in st.session_state.daily_records, f"존재하지 않는 키입니다: {target_key}"
+
+    st.session_state.daily_records.pop(target_key, None)
+    save_and_sync()
+    st.warning(f"🗑️ {target_key} 기록이 삭제되었습니다.")
+    st.rerun()
+
+col_btn1, _ = st.columns(2)
 
 with col_btn1:
     if st.button("💾 출결 저장", type="primary", use_container_width=True, disabled=is_disabled):
@@ -183,14 +205,6 @@ with col_btn1:
             save_and_sync()
             st.success(f"✅ {str_date} 기록이 저장되었습니다.")
             st.rerun()
-
-with col_btn2:
-    has_record = str_date in st.session_state.daily_records
-    if st.button("🗑️ 기록 삭제", use_container_width=True, disabled=(is_disabled or not has_record)):
-        st.session_state.daily_records.pop(str_date, None)
-        save_and_sync()
-        st.warning(f"🗑️ {str_date} 기록이 삭제되었습니다.")
-        st.rerun()
 
 st.divider()
 
@@ -206,7 +220,7 @@ with col_in2:
     early_leave_input = int(st.number_input("조퇴 횟수", min_value=0, max_value=20, value=cal_early, step=1, format="%d"))
     out_input = int(st.number_input("외출 횟수", min_value=0, max_value=20, value=cal_out, step=1, format="%d"))
 
-sim_result = attendance.calculate_attendance_tool(
+sim_result: Dict[str, Any] = attendance.calculate_attendance_tool(
     month=selected_month,
     absent_days=absent_input,
     tardy_count=tardy_input,
@@ -215,32 +229,43 @@ sim_result = attendance.calculate_attendance_tool(
     official_leave_days=0
 )
 
-sim_converted = (tardy_input // 3) + (early_leave_input // 3) + (out_input // 3)
-sim_net_absent = absent_input + sim_converted
-sim_remaining = max(0, max_allowed_absent - sim_net_absent)
+sim_converted: int = (tardy_input // 3) + (early_leave_input // 3) + (out_input // 3)
+sim_net_absent: int = absent_input + sim_converted
+sim_remaining: int = max(0, max_allowed_absent - sim_net_absent)
 
 st.info(f"💡 **시뮬레이션 결과:** 출석률 **{sim_result['attendance_rate']}%** | 남은 결석 가능: **{sim_remaining}일**")
 
 st.divider()
 
-# 5. 선택 월 기준 목록 출력
+# 5. 선택 월 기준 목록 출력 (불릿 위치 ❌ 삭제 버튼 적용)
 st.subheader(f"📜 {selected_month}월 확정 기록 목록")
 
-monthly_records = [
+monthly_records: List[tuple[str, Dict[str, Any]]] = [
     (d, r) for d, r in st.session_state.daily_records.items()
     if datetime.datetime.strptime(d, "%Y-%m-%d").date().month == selected_month
 ]
 
 if monthly_records:
     for d_str, rec in sorted(monthly_records):
-        st_val = rec.get("status", "🟢 정상출석")
-        memo_val = rec.get("memo", "")
+        assert isinstance(d_str, str), "d_str은 문자열 형태여야 합니다."
+        assert isinstance(rec, dict), "rec는 딕셔너리 구조여야 합니다."
+
+        col_del, col_text = st.columns([0.8, 9.2])
         
-        display_memo = f"{memo_val[:20]}..." if len(memo_val) > 20 else memo_val
-        memo_str = f" | <span style='color:#5F6368;'>📝 {display_memo}</span>" if memo_val else ""
+        with col_del:
+            if st.button("❌", key=f"btn_del_{d_str}", help=f"{d_str} 기록 삭제"):
+                delete_record_by_key(target_key=d_str)
+
+        st_val: str = rec.get("status", "🟢 정상출석")
+        memo_val: str = rec.get("memo", "")
         
-        style = BADGE_STYLES.get(st_val, BADGE_STYLES["🟢 정상출석"])
-        badge_html = f"<span style='padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold; {style}'>{st_val}</span>"
-        st.markdown(f"• **{d_str}** : {badge_html}{memo_str}", unsafe_allow_html=True)
+        display_memo: str = f"{memo_val[:15]}..." if len(memo_val) > 15 else memo_val
+        memo_str: str = f" | <span style='color:#5F6368;'>📝 {display_memo}</span>" if memo_val else ""
+        
+        style: str = BADGE_STYLES.get(st_val, BADGE_STYLES["🟢 정상출석"])
+        badge_html: str = f"<span style='padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold; {style}'>{st_val}</span>"
+        
+        with col_text:
+            st.markdown(f"**{d_str}** : {badge_html}{memo_str}", unsafe_allow_html=True)
 else:
     st.caption("아직 이번 달에 입력된 확정 기록이 없습니다.")
