@@ -24,33 +24,41 @@ BADGE_STYLES: Dict[str, str] = {
 
 st.set_page_config(page_title="7기 출결 계산기", page_icon="📱", layout="centered")
 
-# LocalStorage 동기화 브릿지
+# 1. LocalStorage -> Window.parent URL 동기화 (Iframe Sandbox 대응)
 components.html("""
     <script>
-    const localData = localStorage.getItem('gwangju_ai_attendance');
-    const urlParams = new URLSearchParams(window.location.search);
-    if (localData && !urlParams.has('synced')) {
-        const url = new URL(window.location.href);
-        url.searchParams.set('data', encodeURIComponent(localData));
-        url.searchParams.set('synced', '1');
-        window.location.href = url.toString();
+    try {
+        const localData = localStorage.getItem('gwangju_ai_attendance');
+        const urlParams = new URLSearchParams(window.parent.location.search);
+        if (localData && !urlParams.has('synced')) {
+            const url = new URL(window.parent.location.href);
+            url.searchParams.set('data', encodeURIComponent(localData));
+            url.searchParams.set('synced', '1');
+            window.parent.location.href = url.toString();
+        }
+    } catch (e) {
+        console.error(e);
     }
     </script>
 """, height=0)
 
-if "daily_records" not in st.session_state:
+# 2. 세션 플래그 기반 단방향 초기화 (좀비 데이터 복원 방지)
+if "is_initialized" not in st.session_state:
+    st.session_state.is_initialized = True
     st.session_state.daily_records = {}
     if "data" in st.query_params:
         try:
             raw_json: str = urllib.parse.unquote(st.query_params["data"])
-            st.session_state.daily_records = json.loads(raw_json)
+            parsed_data: Dict[str, Any] = json.loads(raw_json)
+            assert isinstance(parsed_data, dict), "파싱된 데이터는 Dict 구조여야 합니다."
+            st.session_state.daily_records = parsed_data
         except Exception:
             pass
 
 st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
 st.title("📱 7기 출결 계산기")
 
-# 1. 오늘 날짜 기준 기본 월 지정
+# 3. 오늘 날짜 기준 기본 월 지정
 today: datetime.date = datetime.date.today()
 current_month: int = max(5, min(12, today.month))
 month_options: List[int] = [5, 6, 7, 8, 9, 10, 11, 12]
@@ -91,7 +99,7 @@ result: Dict[str, Any] = attendance.calculate_attendance_tool(
     official_leave_days=0
 )
 
-# 2. 📊 출결 현황판
+# 4. 📊 출결 현황판
 st.divider()
 st.subheader("📊 출결 현황판")
 
@@ -127,7 +135,7 @@ with c3:
 
 st.divider()
 
-# 3. 날짜별 출결 입력 / 저장 / 삭제 (상단 듀얼 버튼 구조)
+# 5. 날짜별 출결 입력 / 저장 / 삭제
 min_date: datetime.date = datetime.date(2026, selected_month, 1)
 max_date: datetime.date = datetime.date(2026, 12, 31) if selected_month == 12 else datetime.date(2026, selected_month + 1, 1) - datetime.timedelta(days=1)
 default_picker_date: datetime.date = today if min_date <= today <= max_date else min_date
@@ -172,7 +180,11 @@ def save_and_sync() -> None:
     st.query_params["synced"] = "1"
     components.html(f"""
         <script>
-        localStorage.setItem('gwangju_ai_attendance', '{json_data}');
+        try {{
+            localStorage.setItem('gwangju_ai_attendance', '{json_data}');
+        }} catch(e) {{
+            console.error(e);
+        }}
         </script>
     """, height=0)
 
@@ -215,7 +227,7 @@ with col_btn2:
 
 st.divider()
 
-# 4. 가상 시뮬레이터
+# 6. 가상 시뮬레이터
 st.subheader("✏️ 출결 시뮬레이터 (가상 테스트)")
 
 col_in1, col_in2 = st.columns(2)
@@ -244,7 +256,7 @@ st.info(f"💡 **시뮬레이션 결과:** 출석률 **{sim_result['attendance_r
 
 st.divider()
 
-# 5. 선택 월 기준 목록 출력 (불릿 위치 ❌ 삭제 버튼 적용)
+# 7. 선택 월 기준 목록 출력
 st.subheader(f"📜 {selected_month}월 확정 기록 목록")
 
 monthly_records: List[Tuple[str, Dict[str, Any]]] = [
@@ -276,3 +288,16 @@ if monthly_records:
             st.markdown(f"**{d_str}** : {badge_html}{memo_str}", unsafe_allow_html=True)
 else:
     st.caption("아직 이번 달에 입력된 확정 기록이 없습니다.")
+
+# 8. 데이터 파일 백업 기능
+st.divider()
+st.subheader("💾 데이터 백업")
+
+json_download_data: str = json.dumps(st.session_state.daily_records, ensure_ascii=False, indent=2)
+st.download_button(
+    label="📥 내 출결 기록 파일로 다운로드 (JSON 백업)",
+    data=json_download_data,
+    file_name=f"attendance_backup_{today.strftime('%Y%m%d')}.json",
+    mime="application/json",
+    use_container_width=True
+)
