@@ -1,2 +1,5 @@
+streamlit
+pandas
+numpy
 st-gsheets-connection
 gspread
