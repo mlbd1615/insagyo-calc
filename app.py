@@ -22,9 +22,9 @@ BADGE_STYLES: Dict[str, str] = {
     "🟢 정상출석": "background:#F1F3F4; color:#3C4043; border:1px solid #3C4043;"
 }
 
-st.set_page_config(page_title="7기 출결 생존 계산기", page_icon="📱", layout="centered")
+st.set_page_config(page_title="7기 출결 계산기", page_icon="📱", layout="centered")
 
-# LocalStorage 읽기 브릿지
+# LocalStorage 동기화 브릿지
 components.html("""
     <script>
     const localData = localStorage.getItem('gwangju_ai_attendance');
@@ -48,9 +48,9 @@ if "daily_records" not in st.session_state:
             pass
 
 st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
-st.title("📱 7기 출결 생존 계산기")
+st.title("📱 7기 출결 계산기")
 
-# 1. 오늘 날짜 기준으로 기본 월 지정
+# 1. 오늘 날짜 기준 기본 월 지정
 today = datetime.date.today()
 current_month = max(5, min(12, today.month))
 month_options = [5, 6, 7, 8, 9, 10, 11, 12]
@@ -66,9 +66,64 @@ selected_month: int = st.selectbox(
 base_info: Dict[str, Any] = attendance.calculate_attendance_tool(month=selected_month)
 max_official_limit: int = int(base_info['max_official_leave'])
 
+# 당월 확정 집계 계산
+cal_tardy, cal_early, cal_out, cal_absent, cal_official = 0, 0, 0, 0, 0
+for d_str, rec in st.session_state.daily_records.items():
+    if datetime.datetime.strptime(d_str, "%Y-%m-%d").date().month == selected_month:
+        st_val = rec.get("status", "")
+        if st_val == "🏛️ 공가(공결)": cal_official += 1
+        elif st_val == "❌ 결석": cal_absent += 1
+        elif st_val == "⏰ 지각": cal_tardy += 1
+        elif st_val == "🏃 조퇴": cal_early += 1
+        elif st_val == "🚶 외출": cal_out += 1
+
+result = attendance.calculate_attendance_tool(
+    month=selected_month,
+    absent_days=cal_absent,
+    tardy_count=cal_tardy,
+    early_leave_count=cal_early,
+    out_count=cal_out,
+    official_leave_days=0
+)
+
+# 2. [최상단 배치] 📊 출결 현황판
+st.divider()
+st.subheader("📊 출결 현황판")
+
+total_days = int(result['total_days'])
+target_80_days = int(result['target_80_days'])
+max_allowed_absent = total_days - target_80_days
+
+converted_absent = (cal_tardy // 3) + (cal_early // 3) + (cal_out // 3)
+net_total_absent = cal_absent + converted_absent
+remaining_safe_absent = max(0, max_allowed_absent - net_total_absent)
+
+m_col1, m_col2 = st.columns(2)
+with m_col1:
+    st.metric("🔥 남은 결석 가능 일수", f"{remaining_safe_absent}일 남음")
+with m_col2:
+    st.metric("현재 출석률", f"{result['attendance_rate']} %")
+
+rem_official_days = max_official_limit - cal_official
+st.caption(f"🏛️ **공가 사용 현황:** {cal_official}일 사용 / 총 {max_official_limit}일 가능 (남은 찬스: {rem_official_days}일)")
+
+# 지각/조퇴/외출 잔여 횟수 3분할 메트릭 시각화
+st.markdown("##### ⏳ 1결석 추가 차감까지 남은 찬스")
+c1, c2, c3 = st.columns(3)
+rem_tardy = 3 - (cal_tardy % 3) if (cal_tardy % 3) != 0 else 3
+rem_early = 3 - (cal_early % 3) if (cal_early % 3) != 0 else 3
+rem_out = 3 - (cal_out % 3) if (cal_out % 3) != 0 else 3
+
+with c1:
+    st.metric("⏰ 지각 잔여", f"{rem_tardy}회", help=f"현재 {cal_tardy}회 누적 중")
+with c2:
+    st.metric("🏃 조퇴 잔여", f"{rem_early}회", help=f"현재 {cal_early}회 누적 중")
+with c3:
+    st.metric("🚶 외출 잔여", f"{rem_out}회", help=f"현재 {cal_out}회 누적 중")
+
 st.divider()
 
-# 2. 날짜 선택기 (월 변경 시 충돌 방지 dynamic key)
+# 3. 날짜별 출결 입력 및 저장
 min_date = datetime.date(2026, selected_month, 1)
 max_date = datetime.date(2026, 12, 31) if selected_month == 12 else datetime.date(2026, selected_month + 1, 1) - datetime.timedelta(days=1)
 default_picker_date = today if min_date <= today <= max_date else min_date
@@ -103,7 +158,6 @@ current_used_official: int = sum(
     and rec.get("status") == "🏛️ 공가(공결)" and d_str != str_date
 )
 
-# 3. 저장 및 삭제 기능 (양방향 동기화)
 col_btn1, col_btn2 = st.columns(2)
 
 def save_and_sync():
@@ -140,19 +194,7 @@ with col_btn2:
 
 st.divider()
 
-# 4. 당월 확정 집계
-cal_tardy, cal_early, cal_out, cal_absent, cal_official = 0, 0, 0, 0, 0
-
-for d_str, rec in st.session_state.daily_records.items():
-    if datetime.datetime.strptime(d_str, "%Y-%m-%d").date().month == selected_month:
-        st_val = rec.get("status", "")
-        if st_val == "🏛️ 공가(공결)": cal_official += 1
-        elif st_val == "❌ 결석": cal_absent += 1
-        elif st_val == "⏰ 지각": cal_tardy += 1
-        elif st_val == "🏃 조퇴": cal_early += 1
-        elif st_val == "🚶 외출": cal_out += 1
-
-# 5. 가상 시뮬레이터
+# 4. 가상 시뮬레이터
 st.subheader("✏️ 출결 시뮬레이터 (가상 테스트)")
 
 col_in1, col_in2 = st.columns(2)
@@ -164,7 +206,7 @@ with col_in2:
     early_leave_input = int(st.number_input("조퇴 횟수", min_value=0, max_value=20, value=cal_early, step=1, format="%d"))
     out_input = int(st.number_input("외출 횟수", min_value=0, max_value=20, value=cal_out, step=1, format="%d"))
 
-result = attendance.calculate_attendance_tool(
+sim_result = attendance.calculate_attendance_tool(
     month=selected_month,
     absent_days=absent_input,
     tardy_count=tardy_input,
@@ -173,32 +215,15 @@ result = attendance.calculate_attendance_tool(
     official_leave_days=0
 )
 
-# 6. 현황판
+sim_converted = (tardy_input // 3) + (early_leave_input // 3) + (out_input // 3)
+sim_net_absent = absent_input + sim_converted
+sim_remaining = max(0, max_allowed_absent - sim_net_absent)
+
+st.info(f"💡 **시뮬레이션 결과:** 출석률 **{sim_result['attendance_rate']}%** | 남은 결석 가능: **{sim_remaining}일**")
+
 st.divider()
-st.subheader("🚨 생존 현황판")
 
-rem_official_days = max_official_limit - cal_official
-st.markdown(f"**🏛️ 공가 잔여:** {rem_official_days}일 / {max_official_limit}일")
-
-rem_tardy = 3 - (tardy_input % 3) if (tardy_input % 3) != 0 else 3
-rem_early = 3 - (early_leave_input % 3) if (early_leave_input % 3) != 0 else 3
-rem_out = 3 - (out_input % 3) if (out_input % 3) != 0 else 3
-
-st.markdown(f"**⏳ 1결석 전환까지:** 지각 {rem_tardy}회 | 조퇴 {rem_early}회 | 외출 {rem_out}회 남음")
-
-total_days = int(result['total_days'])
-target_80_days = int(result['target_80_days'])
-max_allowed_absent = total_days - target_80_days
-
-converted_absent = (tardy_input // 3) + (early_leave_input // 3) + (out_input // 3)
-net_total_absent = absent_input + converted_absent
-remaining_safe_absent = max(0, max_allowed_absent - net_total_absent)
-
-st.metric("현재 출석률", f"{result['attendance_rate']} %")
-st.metric("🔥 80% 방어선 남은 결석 가능 일수", f"{remaining_safe_absent}일 남음")
-
-# 7. 선택 월 기준 목록 출력
-st.divider()
+# 5. 선택 월 기준 목록 출력
 st.subheader(f"📜 {selected_month}월 확정 기록 목록")
 
 monthly_records = [
