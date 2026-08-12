@@ -3,7 +3,6 @@ import json
 import urllib.parse
 from typing import Dict, Any, List, Tuple
 import streamlit as st
-import streamlit.components.v1 as components
 import attendance
 
 HOLIDAYS_2026: List[str] = [
@@ -24,41 +23,29 @@ BADGE_STYLES: Dict[str, str] = {
 
 st.set_page_config(page_title="7기 출결 계산기", page_icon="📱", layout="centered")
 
-# 1. LocalStorage -> Window.parent URL 동기화 (Iframe Sandbox 대응)
-components.html("""
-    <script>
-    try {
-        const localData = localStorage.getItem('gwangju_ai_attendance');
-        const urlParams = new URLSearchParams(window.parent.location.search);
-        if (localData && !urlParams.has('synced')) {
-            const url = new URL(window.parent.location.href);
-            url.searchParams.set('data', encodeURIComponent(localData));
-            url.searchParams.set('synced', '1');
-            window.parent.location.href = url.toString();
-        }
-    } catch (e) {
-        console.error(e);
-    }
-    </script>
-""", height=0)
-
-# 2. 세션 플래그 기반 단방향 초기화 (좀비 데이터 복원 방지)
-if "is_initialized" not in st.session_state:
-    st.session_state.is_initialized = True
+# 1. 안전한 URL 쿼리 파라미터 기반 데이터 세션 로드 (CORS/Iframe 에러 위험 제로)
+if "daily_records" not in st.session_state:
     st.session_state.daily_records = {}
     if "data" in st.query_params:
         try:
             raw_json: str = urllib.parse.unquote(st.query_params["data"])
             parsed_data: Dict[str, Any] = json.loads(raw_json)
-            assert isinstance(parsed_data, dict), "파싱된 데이터는 Dict 구조여야 합니다."
-            st.session_state.daily_records = parsed_data
+            if isinstance(parsed_data, dict):
+                st.session_state.daily_records = parsed_data
         except Exception:
             pass
+
+def sync_data() -> None:
+    """
+    st.session_state의 출결 기록을 URL Query Parameter에 실시간 안전 동기화합니다.
+    """
+    json_data: str = json.dumps(st.session_state.daily_records, ensure_ascii=False)
+    st.query_params["data"] = json_data
 
 st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
 st.title("📱 7기 출결 계산기")
 
-# 3. 오늘 날짜 기준 기본 월 지정
+# 2. 오늘 날짜 기준 기본 월 지정
 today: datetime.date = datetime.date.today()
 current_month: int = max(5, min(12, today.month))
 month_options: List[int] = [5, 6, 7, 8, 9, 10, 11, 12]
@@ -99,7 +86,7 @@ result: Dict[str, Any] = attendance.calculate_attendance_tool(
     official_leave_days=0
 )
 
-# 4. 📊 출결 현황판
+# 3. 📊 출결 현황판
 st.divider()
 st.subheader("📊 출결 현황판")
 
@@ -135,7 +122,7 @@ with c3:
 
 st.divider()
 
-# 5. 날짜별 출결 입력 / 저장 / 삭제
+# 4. 날짜별 출결 입력 / 저장 / 삭제
 min_date: datetime.date = datetime.date(2026, selected_month, 1)
 max_date: datetime.date = datetime.date(2026, 12, 31) if selected_month == 12 else datetime.date(2026, selected_month + 1, 1) - datetime.timedelta(days=1)
 default_picker_date: datetime.date = today if min_date <= today <= max_date else min_date
@@ -170,44 +157,18 @@ current_used_official: int = sum(
     and rec.get("status") == "🏛️ 공가(공결)" and d_str != str_date
 )
 
-def save_and_sync() -> None:
-    """
-    st.session_state의 출결 기록 데이터를 JSON 변환 후 LocalStorage 및 URL Query Params에 동기화합니다.
-    """
-    json_data: str = json.dumps(st.session_state.daily_records, ensure_ascii=False)
-    encoded_data: str = urllib.parse.quote(json_data)
-    st.query_params["data"] = encoded_data
-    st.query_params["synced"] = "1"
-    components.html(f"""
-        <script>
-        try {{
-            localStorage.setItem('gwangju_ai_attendance', '{json_data}');
-        }} catch(e) {{
-            console.error(e);
-        }}
-        </script>
-    """, height=0)
-
 def delete_record_by_key(target_key: str) -> None:
-    """
-    지정된 날짜 키(YYYY-MM-DD)의 출결 기록을 session_state 및 LocalStorage에서 제거합니다.
-
-    Args:
-        target_key (str): 삭제 대상 날짜 문자열 (예: "2026-08-11")
-    """
     assert isinstance(target_key, str), "target_key는 반드시 문자열 형태여야 합니다."
-    assert target_key in st.session_state.daily_records, f"존재하지 않는 키입니다: {target_key}"
-
-    st.session_state.daily_records.pop(target_key, None)
-    save_and_sync()
-    st.warning(f"🗑️ {target_key} 기록이 삭제되었습니다.")
-    st.rerun()
+    if target_key in st.session_state.daily_records:
+        st.session_state.daily_records.pop(target_key, None)
+        sync_data()
+        st.warning(f"🗑️ {target_key} 기록이 삭제되었습니다.")
+        st.rerun()
 
 col_btn1, col_btn2 = st.columns(2)
 
 with col_btn1:
     if st.button("💾 출결 저장", type="primary", use_container_width=True, disabled=is_disabled):
-        assert isinstance(str_date, str), "str_date는 문자열이어야 합니다."
         if in_status == "🏛️ 공가(공결)" and (current_used_official + 1 > max_official_limit):
             st.error(f"❌ 이번 달 최대 공가 한도({max_official_limit}일)를 초과할 수 없습니다!")
         else:
@@ -215,19 +176,18 @@ with col_btn1:
                 "status": in_status,
                 "memo": in_memo.strip()
             }
-            save_and_sync()
+            sync_data()
             st.success(f"✅ {str_date} 기록이 저장되었습니다.")
             st.rerun()
 
 with col_btn2:
     has_record: bool = str_date in st.session_state.daily_records
     if st.button("🗑️ 선택 날짜 삭제", use_container_width=True, disabled=(is_disabled or not has_record)):
-        assert isinstance(str_date, str), "str_date는 문자열이어야 합니다."
         delete_record_by_key(target_key=str_date)
 
 st.divider()
 
-# 6. 가상 시뮬레이터
+# 5. 가상 시뮬레이터
 st.subheader("✏️ 출결 시뮬레이터 (가상 테스트)")
 
 col_in1, col_in2 = st.columns(2)
@@ -256,7 +216,7 @@ st.info(f"💡 **시뮬레이션 결과:** 출석률 **{sim_result['attendance_r
 
 st.divider()
 
-# 7. 선택 월 기준 목록 출력
+# 6. 선택 월 기준 목록 출력 (불릿 위치 ❌ 삭제 버튼 적용)
 st.subheader(f"📜 {selected_month}월 확정 기록 목록")
 
 monthly_records: List[Tuple[str, Dict[str, Any]]] = [
@@ -266,9 +226,6 @@ monthly_records: List[Tuple[str, Dict[str, Any]]] = [
 
 if monthly_records:
     for d_str, rec in sorted(monthly_records):
-        assert isinstance(d_str, str), "d_str은 문자열 형태여야 합니다."
-        assert isinstance(rec, dict), "rec는 딕셔너리 구조여야 합니다."
-
         col_del, col_text = st.columns([0.8, 9.2])
         
         with col_del:
@@ -289,15 +246,31 @@ if monthly_records:
 else:
     st.caption("아직 이번 달에 입력된 확정 기록이 없습니다.")
 
-# 8. 데이터 파일 백업 기능
+# 7. 백업 다운로드 및 파일 업로드(복구) 기능
 st.divider()
-st.subheader("💾 데이터 백업")
+st.subheader("💾 데이터 백업 및 파일 복구")
 
-json_download_data: str = json.dumps(st.session_state.daily_records, ensure_ascii=False, indent=2)
-st.download_button(
-    label="📥 내 출결 기록 파일로 다운로드 (JSON 백업)",
-    data=json_download_data,
-    file_name=f"attendance_backup_{today.strftime('%Y%m%d')}.json",
-    mime="application/json",
-    use_container_width=True
-)
+col_bak1, col_bak2 = st.columns(2)
+
+with col_bak1:
+    json_download_data: str = json.dumps(st.session_state.daily_records, ensure_ascii=False, indent=2)
+    st.download_button(
+        label="📥 내 출결 기록 파일 저장 (JSON)",
+        data=json_download_data,
+        file_name=f"attendance_backup_{today.strftime('%Y%m%d')}.json",
+        mime="application/json",
+        use_container_width=True
+    )
+
+with col_bak2:
+    uploaded_file = st.file_uploader("📤 백업 파일 업로드하여 불러오기", type=["json"], label_visibility="collapsed")
+    if uploaded_file is not None:
+        try:
+            loaded_data = json.load(uploaded_file)
+            if isinstance(loaded_data, dict):
+                st.session_state.daily_records = loaded_data
+                sync_data()
+                st.success("✅ 파일에서 출결 기록을 성공적으로 불러왔습니다!")
+                st.rerun()
+        except Exception:
+            st.error("❌ 올바르지 않은 백업 파일 형태입니다.")
