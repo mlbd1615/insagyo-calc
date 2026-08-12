@@ -15,9 +15,9 @@ def calculate_attendance_tool(
     official_leave_days: int = 0
 ) -> Dict[str, Union[int, float]]:
     """
-    7기 출결 계산 연산 모듈 (보수적 math.ceil 적용)
+    7기 출결 계산 연산 모듈
     """
-    assert 5 <= month <= 12, "월은 5~12월 사이여야 합니다."[cite: 2]
+    assert 5 <= month <= 12, "월은 5~12월 사이여야 합니다."
     assert absent_days >= 0 and tardy_count >= 0 and early_leave_count >= 0 and out_count >= 0 and official_leave_days >= 0, "입력 수치는 0 이상이어야 합니다."
 
     total_days: int = MONTH_TOTAL_DAYS.get(month, 20)
@@ -34,9 +34,9 @@ def calculate_attendance_tool(
     
     attendance_rate: float = round((calculated_days / total_days) * 100, 2)
     
-    target_50_days: int = math.ceil(total_days * 0.5)[cite: 2]
-    target_80_days: int = math.ceil(total_days * 0.8)[cite: 2]
-    max_official_leave: int = math.floor(total_days * 0.2)[cite: 2]
+    target_50_days: int = math.ceil(total_days * 0.5)
+    target_80_days: int = math.ceil(total_days * 0.8)
+    max_official_leave: int = math.floor(total_days * 0.2)
     
     return {
         "month": month,
