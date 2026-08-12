@@ -1,7 +1,9 @@
 import datetime
 import json
-import urllib.parse
 from typing import Dict, Any, List, Tuple
+import numpy as np
+import pandas as pd
+import requests
 import streamlit as st
 import attendance
 
@@ -23,29 +25,60 @@ BADGE_STYLES: Dict[str, str] = {
 
 st.set_page_config(page_title="7기 출결 계산기", page_icon="📱", layout="centered")
 
-# 1. 안전한 URL 쿼리 파라미터 기반 데이터 세션 로드 (CORS/Iframe 에러 위험 제로)
-if "daily_records" not in st.session_state:
-    st.session_state.daily_records = {}
-    if "data" in st.query_params:
-        try:
-            raw_json: str = urllib.parse.unquote(st.query_params["data"])
-            parsed_data: Dict[str, Any] = json.loads(raw_json)
-            if isinstance(parsed_data, dict):
-                st.session_state.daily_records = parsed_data
-        except Exception:
-            pass
+GITHUB_TOKEN: str = st.secrets.get("GITHUB_TOKEN", "")
+GIST_ID: str = st.secrets.get("GIST_ID", "")
 
-def sync_data() -> None:
+def load_from_gist() -> Dict[str, Dict[str, Any]]:
     """
-    st.session_state의 출결 기록을 URL Query Parameter에 실시간 안전 동기화합니다.
+    GitHub Private Gist API에서 출결 데이터를 동기화하여 가져옵니다.
     """
-    json_data: str = json.dumps(st.session_state.daily_records, ensure_ascii=False)
-    st.query_params["data"] = json_data
+    if not GITHUB_TOKEN or not GIST_ID:
+        return {}
+    url: str = f"https://api.github.com/gists/{GIST_ID}"
+    headers: Dict[str, str] = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
+    try:
+        response = requests.get(url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            files = response.json().get("files", {})
+            gist_file = files.get("attendance_data.json", {})
+            content = gist_file.get("content", "{}")
+            parsed = json.loads(content)
+            return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+def save_to_gist(records: Dict[str, Dict[str, Any]]) -> bool:
+    """
+    출결 데이터 사전 객체를 GitHub Private Gist에 동기화 업데이트합니다.
+    """
+    assert isinstance(records, dict), "records는 반드시 Dict 구조여야 합니다."
+    if not GITHUB_TOKEN or not GIST_ID:
+        return False
+    url: str = f"https://api.github.com/gists/{GIST_ID}"
+    headers: Dict[str, str] = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
+    json_payload: str = json.dumps(records, ensure_ascii=False, indent=2)
+    payload = {
+        "files": {
+            "attendance_data.json": {
+                "content": json_payload
+            }
+        }
+    }
+    try:
+        response = requests.patch(url, headers=headers, json=payload, timeout=5)
+        return response.status_code == 200
+    except Exception:
+        return False
+
+# 세션 데이터 로드
+if "daily_records" not in st.session_state:
+    st.session_state.daily_records = load_from_gist()
 
 st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
 st.title("📱 7기 출결 계산기")
 
-# 2. 오늘 날짜 기준 기본 월 지정
+# 1. 오늘 날짜 기준 기본 월 지정
 today: datetime.date = datetime.date.today()
 current_month: int = max(5, min(12, today.month))
 month_options: List[int] = [5, 6, 7, 8, 9, 10, 11, 12]
@@ -61,21 +94,39 @@ selected_month: int = st.selectbox(
 base_info: Dict[str, Any] = attendance.calculate_attendance_tool(month=selected_month)
 max_official_limit: int = int(base_info['max_official_leave'])
 
-# 당월 확정 집계 계산
-cal_tardy: int = 0
-cal_early: int = 0
-cal_out: int = 0
-cal_absent: int = 0
-cal_official: int = 0
+# 당월 확정 집계 연산 (NumPy 벡터화)
+monthly_list: List[Dict[str, Any]] = [
+    rec for d_str, rec in st.session_state.daily_records.items()
+    if datetime.datetime.strptime(d_str, "%Y-%m-%d").date().month == selected_month
+]
 
-for d_str, rec in st.session_state.daily_records.items():
-    if datetime.datetime.strptime(d_str, "%Y-%m-%d").date().month == selected_month:
-        st_val: str = rec.get("status", "")
-        if st_val == "🏛️ 공가(공결)": cal_official += 1
-        elif st_val == "❌ 결석": cal_absent += 1
-        elif st_val == "⏰ 지각": cal_tardy += 1
-        elif st_val == "🏃 조퇴": cal_early += 1
-        elif st_val == "🚶 외출": cal_out += 1
+df_monthly: pd.DataFrame = pd.DataFrame(monthly_list)
+
+def count_attendance_vectorized(df_records: pd.DataFrame) -> Dict[str, int]:
+    """
+    DataFrame을 받아서 NumPy 1D C-Contiguous 텐서로 변환 후 브로드캐스팅 연산으로 집계합니다.
+    """
+    assert isinstance(df_records, pd.DataFrame), "df_records는 반드시 Pandas DataFrame이어야 합니다."
+
+    if df_records.empty or "status" not in df_records.columns:
+        return {"cal_tardy": 0, "cal_early": 0, "cal_absent": 0, "cal_official": 0, "cal_out": 0}
+
+    status_vec: np.ndarray = df_records["status"].to_numpy()
+
+    return {
+        "cal_tardy": int(np.sum(np.equal(status_vec, "⏰ 지각"))),
+        "cal_early": int(np.sum(np.equal(status_vec, "🏃 조퇴"))),
+        "cal_out": int(np.sum(np.equal(status_vec, "🚶 외출"))),
+        "cal_absent": int(np.sum(np.equal(status_vec, "❌ 결석"))),
+        "cal_official": int(np.sum(np.equal(status_vec, "🏛️ 공가(공결)")))
+    }
+
+counts: Dict[str, int] = count_attendance_vectorized(df_monthly)
+cal_tardy: int = counts["cal_tardy"]
+cal_early: int = counts["cal_early"]
+cal_out: int = counts["cal_out"]
+cal_absent: int = counts["cal_absent"]
+cal_official: int = counts["cal_official"]
 
 result: Dict[str, Any] = attendance.calculate_attendance_tool(
     month=selected_month,
@@ -86,7 +137,7 @@ result: Dict[str, Any] = attendance.calculate_attendance_tool(
     official_leave_days=0
 )
 
-# 3. 📊 출결 현황판
+# 2. 📊 출결 현황판
 st.divider()
 st.subheader("📊 출결 현황판")
 
@@ -122,7 +173,7 @@ with c3:
 
 st.divider()
 
-# 4. 날짜별 출결 입력 / 저장 / 삭제
+# 3. 날짜별 출결 입력 / 저장 / 삭제
 min_date: datetime.date = datetime.date(2026, selected_month, 1)
 max_date: datetime.date = datetime.date(2026, 12, 31) if selected_month == 12 else datetime.date(2026, selected_month + 1, 1) - datetime.timedelta(days=1)
 default_picker_date: datetime.date = today if min_date <= today <= max_date else min_date
@@ -158,10 +209,13 @@ current_used_official: int = sum(
 )
 
 def delete_record_by_key(target_key: str) -> None:
+    """
+    지정된 날짜 키의 기록을 삭제하고 GitHub Private Gist에 동기화합니다.
+    """
     assert isinstance(target_key, str), "target_key는 반드시 문자열 형태여야 합니다."
     if target_key in st.session_state.daily_records:
         st.session_state.daily_records.pop(target_key, None)
-        sync_data()
+        save_to_gist(st.session_state.daily_records)
         st.warning(f"🗑️ {target_key} 기록이 삭제되었습니다.")
         st.rerun()
 
@@ -176,7 +230,7 @@ with col_btn1:
                 "status": in_status,
                 "memo": in_memo.strip()
             }
-            sync_data()
+            save_to_gist(st.session_state.daily_records)
             st.success(f"✅ {str_date} 기록이 저장되었습니다.")
             st.rerun()
 
@@ -187,7 +241,7 @@ with col_btn2:
 
 st.divider()
 
-# 5. 가상 시뮬레이터
+# 4. 가상 시뮬레이터
 st.subheader("✏️ 출결 시뮬레이터 (가상 테스트)")
 
 col_in1, col_in2 = st.columns(2)
@@ -216,7 +270,7 @@ st.info(f"💡 **시뮬레이션 결과:** 출석률 **{sim_result['attendance_r
 
 st.divider()
 
-# 6. 선택 월 기준 목록 출력 (불릿 위치 ❌ 삭제 버튼 적용)
+# 5. 선택 월 기준 목록 출력
 st.subheader(f"📜 {selected_month}월 확정 기록 목록")
 
 monthly_records: List[Tuple[str, Dict[str, Any]]] = [
@@ -245,32 +299,3 @@ if monthly_records:
             st.markdown(f"**{d_str}** : {badge_html}{memo_str}", unsafe_allow_html=True)
 else:
     st.caption("아직 이번 달에 입력된 확정 기록이 없습니다.")
-
-# 7. 백업 다운로드 및 파일 업로드(복구) 기능
-st.divider()
-st.subheader("💾 데이터 백업 및 파일 복구")
-
-col_bak1, col_bak2 = st.columns(2)
-
-with col_bak1:
-    json_download_data: str = json.dumps(st.session_state.daily_records, ensure_ascii=False, indent=2)
-    st.download_button(
-        label="📥 내 출결 기록 파일 저장 (JSON)",
-        data=json_download_data,
-        file_name=f"attendance_backup_{today.strftime('%Y%m%d')}.json",
-        mime="application/json",
-        use_container_width=True
-    )
-
-with col_bak2:
-    uploaded_file = st.file_uploader("📤 백업 파일 업로드하여 불러오기", type=["json"], label_visibility="collapsed")
-    if uploaded_file is not None:
-        try:
-            loaded_data = json.load(uploaded_file)
-            if isinstance(loaded_data, dict):
-                st.session_state.daily_records = loaded_data
-                sync_data()
-                st.success("✅ 파일에서 출결 기록을 성공적으로 불러왔습니다!")
-                st.rerun()
-        except Exception:
-            st.error("❌ 올바르지 않은 백업 파일 형태입니다.")
