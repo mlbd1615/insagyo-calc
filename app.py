@@ -1,7 +1,7 @@
 import datetime
 import json
 import urllib.parse
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import streamlit as st
 import streamlit.components.v1 as components
 import attendance
@@ -42,7 +42,7 @@ if "daily_records" not in st.session_state:
     st.session_state.daily_records = {}
     if "data" in st.query_params:
         try:
-            raw_json = urllib.parse.unquote(st.query_params["data"])
+            raw_json: str = urllib.parse.unquote(st.query_params["data"])
             st.session_state.daily_records = json.loads(raw_json)
         except Exception:
             pass
@@ -75,7 +75,7 @@ cal_official: int = 0
 
 for d_str, rec in st.session_state.daily_records.items():
     if datetime.datetime.strptime(d_str, "%Y-%m-%d").date().month == selected_month:
-        st_val = rec.get("status", "")
+        st_val: str = rec.get("status", "")
         if st_val == "🏛️ 공가(공결)": cal_official += 1
         elif st_val == "❌ 결석": cal_absent += 1
         elif st_val == "⏰ 지각": cal_tardy += 1
@@ -127,7 +127,7 @@ with c3:
 
 st.divider()
 
-# 3. 날짜별 출결 입력 및 저장
+# 3. 날짜별 출결 입력 / 저장 / 삭제 (상단 듀얼 버튼 구조)
 min_date: datetime.date = datetime.date(2026, selected_month, 1)
 max_date: datetime.date = datetime.date(2026, 12, 31) if selected_month == 12 else datetime.date(2026, selected_month + 1, 1) - datetime.timedelta(days=1)
 default_picker_date: datetime.date = today if min_date <= today <= max_date else min_date
@@ -191,10 +191,11 @@ def delete_record_by_key(target_key: str) -> None:
     st.warning(f"🗑️ {target_key} 기록이 삭제되었습니다.")
     st.rerun()
 
-col_btn1, _ = st.columns(2)
+col_btn1, col_btn2 = st.columns(2)
 
 with col_btn1:
     if st.button("💾 출결 저장", type="primary", use_container_width=True, disabled=is_disabled):
+        assert isinstance(str_date, str), "str_date는 문자열이어야 합니다."
         if in_status == "🏛️ 공가(공결)" and (current_used_official + 1 > max_official_limit):
             st.error(f"❌ 이번 달 최대 공가 한도({max_official_limit}일)를 초과할 수 없습니다!")
         else:
@@ -205,6 +206,12 @@ with col_btn1:
             save_and_sync()
             st.success(f"✅ {str_date} 기록이 저장되었습니다.")
             st.rerun()
+
+with col_btn2:
+    has_record: bool = str_date in st.session_state.daily_records
+    if st.button("🗑️ 선택 날짜 삭제", use_container_width=True, disabled=(is_disabled or not has_record)):
+        assert isinstance(str_date, str), "str_date는 문자열이어야 합니다."
+        delete_record_by_key(target_key=str_date)
 
 st.divider()
 
@@ -240,7 +247,7 @@ st.divider()
 # 5. 선택 월 기준 목록 출력 (불릿 위치 ❌ 삭제 버튼 적용)
 st.subheader(f"📜 {selected_month}월 확정 기록 목록")
 
-monthly_records: List[tuple[str, Dict[str, Any]]] = [
+monthly_records: List[Tuple[str, Dict[str, Any]]] = [
     (d, r) for d, r in st.session_state.daily_records.items()
     if datetime.datetime.strptime(d, "%Y-%m-%d").date().month == selected_month
 ]
