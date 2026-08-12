@@ -1,5 +1,6 @@
 import datetime
 import json
+import urllib.parse
 from typing import Dict, Any, List
 import streamlit as st
 import streamlit.components.v1 as components
@@ -23,17 +24,42 @@ BADGE_STYLES: Dict[str, str] = {
 
 st.set_page_config(page_title="7기 출결 생존 계산기", page_icon="📱", layout="centered")
 
-st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
-st.title("📱 7기 출결 생존 계산기")
+# LocalStorage 읽기 브릿지
+components.html("""
+    <script>
+    const localData = localStorage.getItem('gwangju_ai_attendance');
+    const urlParams = new URLSearchParams(window.location.search);
+    if (localData && !urlParams.has('synced')) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('data', encodeURIComponent(localData));
+        url.searchParams.set('synced', '1');
+        window.location.href = url.toString();
+    }
+    </script>
+""", height=0)
 
 if "daily_records" not in st.session_state:
     st.session_state.daily_records = {}
+    if "data" in st.query_params:
+        try:
+            raw_json = urllib.parse.unquote(st.query_params["data"])
+            st.session_state.daily_records = json.loads(raw_json)
+        except Exception:
+            pass
 
-# 1. 월 선택
+st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
+st.title("📱 7기 출결 생존 계산기")
+
+# 1. 오늘 날짜 기준으로 기본 월 지정
+today = datetime.date.today()
+current_month = max(5, min(12, today.month))
+month_options = [5, 6, 7, 8, 9, 10, 11, 12]
+default_month_idx = month_options.index(current_month) if current_month in month_options else 0
+
 selected_month: int = st.selectbox(
     "📅 조회 월 선택",
-    options=[5, 6, 7, 8, 9, 10, 11, 12],
-    index=2,
+    options=month_options,
+    index=default_month_idx,
     format_func=lambda x: f"{x}월"
 )
 
@@ -42,26 +68,22 @@ max_official_limit: int = int(base_info['max_official_leave'])
 
 st.divider()
 
-# 2. 날짜 선택기
+# 2. 날짜 선택기 (월 변경 시 충돌 방지 dynamic key)
 min_date = datetime.date(2026, selected_month, 1)
 max_date = datetime.date(2026, 12, 31) if selected_month == 12 else datetime.date(2026, selected_month + 1, 1) - datetime.timedelta(days=1)
-
-if "selected_date" not in st.session_state or not (min_date <= st.session_state.selected_date <= max_date):
-    st.session_state.selected_date = min_date
+default_picker_date = today if min_date <= today <= max_date else min_date
 
 selected_date: datetime.date = st.date_input(
     "👇 달력에서 날짜 선택",
-    value=st.session_state.selected_date,
+    value=default_picker_date,
     min_value=min_date,
     max_value=max_date,
-    key="date_picker"
+    key=f"date_picker_{selected_month}"
 )
-st.session_state.selected_date = selected_date
-str_date: str = selected_date.strftime("%Y-%m-%d")
 
+str_date: str = selected_date.strftime("%Y-%m-%d")
 is_disabled: bool = (selected_date.weekday() >= 5) or (str_date in HOLIDAYS_2026)
 
-# 기존 기록 있으면 자동 로드 (수정 연동)
 current_record: Dict[str, Any] = st.session_state.daily_records.get(
     str_date, 
     {"status": "🟢 정상출석", "memo": ""}
@@ -81,8 +103,19 @@ current_used_official: int = sum(
     and rec.get("status") == "🏛️ 공가(공결)" and d_str != str_date
 )
 
-# 3. 저장 및 삭제 버튼 (2컬럼 라이트 레이아웃)
+# 3. 저장 및 삭제 기능 (양방향 동기화)
 col_btn1, col_btn2 = st.columns(2)
+
+def save_and_sync():
+    json_data = json.dumps(st.session_state.daily_records, ensure_ascii=False)
+    encoded_data = urllib.parse.quote(json_data)
+    st.query_params["data"] = encoded_data
+    st.query_params["synced"] = "1"
+    components.html(f"""
+        <script>
+        localStorage.setItem('gwangju_ai_attendance', '{json_data}');
+        </script>
+    """, height=0)
 
 with col_btn1:
     if st.button("💾 출결 저장", type="primary", use_container_width=True, disabled=is_disabled):
@@ -93,23 +126,15 @@ with col_btn1:
                 "status": in_status,
                 "memo": in_memo.strip()
             }
-            json_data = json.dumps(st.session_state.daily_records, ensure_ascii=False)
-            components.html(
-                f"<script>window.localStorage.setItem('gwangju_ai_attendance', '{json_data}');</script>",
-                height=0
-            )
-            st.success(f"✅ {str_date} 기록이 저장(수정)되었습니다.")
+            save_and_sync()
+            st.success(f"✅ {str_date} 기록이 저장되었습니다.")
+            st.rerun()
 
 with col_btn2:
-    # 해당 날짜에 저장된 기록이 있을 때만 삭제 활성화
     has_record = str_date in st.session_state.daily_records
     if st.button("🗑️ 기록 삭제", use_container_width=True, disabled=(is_disabled or not has_record)):
         st.session_state.daily_records.pop(str_date, None)
-        json_data = json.dumps(st.session_state.daily_records, ensure_ascii=False)
-        components.html(
-            f"<script>window.localStorage.setItem('gwangju_ai_attendance', '{json_data}');</script>",
-            height=0
-        )
+        save_and_sync()
         st.warning(f"🗑️ {str_date} 기록이 삭제되었습니다.")
         st.rerun()
 
@@ -172,7 +197,7 @@ remaining_safe_absent = max(0, max_allowed_absent - net_total_absent)
 st.metric("현재 출석률", f"{result['attendance_rate']} %")
 st.metric("🔥 80% 방어선 남은 결석 가능 일수", f"{remaining_safe_absent}일 남음")
 
-# 7. 선택 월 기준 목록 출력 (20자 초과 시 자동 말줄임표 ... 압축)
+# 7. 선택 월 기준 목록 출력
 st.divider()
 st.subheader(f"📜 {selected_month}월 확정 기록 목록")
 
@@ -186,7 +211,6 @@ if monthly_records:
         st_val = rec.get("status", "🟢 정상출석")
         memo_val = rec.get("memo", "")
         
-        # 20자 초과 시 ... 자르기
         display_memo = f"{memo_val[:20]}..." if len(memo_val) > 20 else memo_val
         memo_str = f" | <span style='color:#5F6368;'>📝 {display_memo}</span>" if memo_val else ""
         
