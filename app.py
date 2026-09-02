@@ -238,12 +238,12 @@ def delete_user_account(name: str) -> bool:
 st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
 st.title("📱 인사교 7기 출결 계산기")
 
-top_col1, top_col2, top_col3 = st.columns([3.4, 1.8, 1.6])
+top_col1, top_col2, top_col3 = st.columns([4.2, 1.4, 1.4])
 with top_col1:
     pin_suffix: str = f" · 🔑 {st.session_state.user_pin}" if st.session_state.user_pin else ""
     st.caption(f"👤 현재 사용자: **{st.session_state.user_name}**{pin_suffix}")
 with top_col2:
-    if st.button("🔄 다른 사람으로", use_container_width=True, help="이름을 지우고 다시 입력합니다."):
+    if st.button("🔄 다른 사람으로", help="이름을 지우고 다시 입력합니다."):
         del st.query_params["user"]
         del st.session_state["user_name"]
         del st.session_state["daily_records"]
@@ -251,7 +251,7 @@ with top_col2:
         st.session_state.pop("user_pin", None)
         st.rerun()
 with top_col3:
-    if st.button("🗑️ 계정 삭제", type="tertiary", use_container_width=True, help="현재 이름/기록/비밀번호를 서버에서 완전히 삭제합니다."):
+    if st.button("🗑️ 계정 삭제", help="현재 이름/기록/비밀번호를 서버에서 완전히 삭제합니다."):
         st.session_state.confirm_delete_account = True
         st.rerun()
 
@@ -283,8 +283,9 @@ st.caption("💡 지금 이 페이지 주소를 즐겨찾기/북마크해두면,
 if not GITHUB_TOKEN or not GIST_ID:
     st.warning("⚠️ 서버 저장이 설정되어 있지 않습니다 (GITHUB_TOKEN/GIST_ID 미설정). 지금 입력하는 기록은 이 화면을 벗어나면 사라집니다.")
 
-# 1. 조회 월 선택 + 날짜별 출결 입력 / 저장 / 삭제 (가까이 붙여서 오갈 때 편하도록)
+# 1. 조회 월 선택
 today: datetime.date = datetime.date.today()
+MONTH_OPTIONS: List[int] = [5, 6, 7, 8, 9, 10, 11, 12]
 
 if "selected_month" not in st.session_state:
     st.session_state.selected_month = max(5, min(12, today.month))
@@ -295,7 +296,19 @@ with month_prev_col:
         st.session_state.selected_month -= 1
         st.rerun()
 with month_label_col:
-    st.markdown(f"<h4 style='text-align:center; margin:0;'>📅 {st.session_state.selected_month}월</h4>", unsafe_allow_html=True)
+    with st.popover(f"📅 {st.session_state.selected_month}월", use_container_width=True):
+        st.caption("월 선택 (여러 달 한 번에 이동)")
+        grid_cols = st.columns(4)
+        for i, m in enumerate(MONTH_OPTIONS):
+            with grid_cols[i % 4]:
+                if st.button(
+                    f"{m}월",
+                    key=f"jump_month_{m}",
+                    use_container_width=True,
+                    type=("primary" if m == st.session_state.selected_month else "secondary"),
+                ):
+                    st.session_state.selected_month = m
+                    st.rerun()
 with month_next_col:
     if st.button("▶", use_container_width=True, disabled=st.session_state.selected_month >= 12):
         st.session_state.selected_month += 1
@@ -305,75 +318,6 @@ selected_month: int = st.session_state.selected_month
 
 base_info: Dict[str, Any] = attendance.calculate_attendance_tool(month=selected_month)
 max_official_limit: int = int(base_info['max_official_leave'])
-
-min_date: datetime.date = datetime.date(2026, selected_month, 1)
-max_date: datetime.date = datetime.date(2026, 12, 31) if selected_month == 12 else datetime.date(2026, selected_month + 1, 1) - datetime.timedelta(days=1)
-default_picker_date: datetime.date = today if min_date <= today <= max_date else min_date
-
-selected_date: datetime.date = st.date_input(
-    "👇 달력에서 날짜 선택",
-    value=default_picker_date,
-    min_value=min_date,
-    max_value=max_date,
-    key=f"date_picker_{selected_month}"
-)
-
-str_date: str = selected_date.strftime("%Y-%m-%d")
-is_disabled: bool = (selected_date.weekday() >= 5) or (str_date in HOLIDAYS_2026)
-
-current_record: Dict[str, Any] = st.session_state.daily_records.get(
-    str_date, 
-    {"status": "🟢 정상출석", "memo": ""}
-)
-
-st.info(f"📌 **선택 날짜: {str_date} ({'공휴일/주말' if is_disabled else '수업일'})**")
-
-status_options: List[str] = ["🟢 정상출석", "⏰ 지각", "🏃 조퇴", "🚶 외출", "❌ 결석", "🏛️ 공가(공결)"]
-curr_idx: int = status_options.index(current_record["status"]) if current_record["status"] in status_options else 0
-
-in_status: str = st.selectbox("출결 상태 선택", options=status_options, index=curr_idx, disabled=is_disabled)
-in_memo: str = st.text_input("📝 메모 / 사유 입력 (최대 50자)", value=current_record.get("memo", ""), max_chars=50, disabled=is_disabled)
-
-current_used_official: int = sum(
-    1 for d_str, rec in st.session_state.daily_records.items()
-    if datetime.datetime.strptime(d_str, "%Y-%m-%d").date().month == selected_month
-    and rec.get("status") == "🏛️ 공가(공결)" and d_str != str_date
-)
-
-def delete_record_by_key(target_key: str) -> None:
-    """
-    지정된 날짜 키의 기록을 삭제하고 GitHub Private Gist에 동기화합니다.
-    """
-    assert isinstance(target_key, str), "target_key는 반드시 문자열 형태여야 합니다."
-    if target_key in st.session_state.daily_records:
-        st.session_state.daily_records.pop(target_key, None)
-        if persist_daily_records():
-            st.warning(f"🗑️ {target_key} 기록이 삭제되었습니다.")
-        else:
-            st.error("⚠️ 서버 저장에 실패했습니다. (GITHUB_TOKEN/GIST_ID 설정을 확인해주세요)")
-        st.rerun()
-
-col_btn1, col_btn2 = st.columns(2)
-
-with col_btn1:
-    if st.button("💾 출결 저장", type="primary", use_container_width=True, disabled=is_disabled):
-        if in_status == "🏛️ 공가(공결)" and (current_used_official + 1 > max_official_limit):
-            st.error(f"❌ 이번 달 최대 공가 한도({max_official_limit}일)를 초과할 수 없습니다!")
-        else:
-            st.session_state.daily_records[str_date] = {
-                "status": in_status,
-                "memo": in_memo.strip()
-            }
-            if persist_daily_records():
-                st.success(f"✅ {str_date} 기록이 저장되었습니다.")
-            else:
-                st.error("⚠️ 서버 저장에 실패했습니다. (GITHUB_TOKEN/GIST_ID 설정을 확인해주세요) 새로고침하면 방금 입력한 내용이 사라질 수 있습니다.")
-            st.rerun()
-
-with col_btn2:
-    has_record: bool = str_date in st.session_state.daily_records
-    if st.button("🗑️ 선택 날짜 삭제", use_container_width=True, disabled=(is_disabled or not has_record)):
-        delete_record_by_key(target_key=str_date)
 
 st.divider()
 
@@ -482,8 +426,82 @@ st.info(f"💡 **시뮬레이션 결과:** 출석률 **{sim_result['attendance_r
 
 st.divider()
 
-# 4. 선택 월 기준 목록 출력
-st.subheader(f"📜 {selected_month}월 확정 기록 목록")
+# 4. 날짜별 출결 입력 / 저장 / 삭제
+st.subheader("📝 출결 입력")
+
+min_date: datetime.date = datetime.date(2026, selected_month, 1)
+max_date: datetime.date = datetime.date(2026, 12, 31) if selected_month == 12 else datetime.date(2026, selected_month + 1, 1) - datetime.timedelta(days=1)
+default_picker_date: datetime.date = today if min_date <= today <= max_date else min_date
+
+selected_date: datetime.date = st.date_input(
+    "👇 달력에서 날짜 선택",
+    value=default_picker_date,
+    min_value=min_date,
+    max_value=max_date,
+    key=f"date_picker_{selected_month}"
+)
+
+str_date: str = selected_date.strftime("%Y-%m-%d")
+is_disabled: bool = (selected_date.weekday() >= 5) or (str_date in HOLIDAYS_2026)
+
+current_record: Dict[str, Any] = st.session_state.daily_records.get(
+    str_date,
+    {"status": "🟢 정상출석", "memo": ""}
+)
+
+st.info(f"📌 **선택 날짜: {str_date} ({'공휴일/주말' if is_disabled else '수업일'})**")
+
+status_options: List[str] = ["🟢 정상출석", "⏰ 지각", "🏃 조퇴", "🚶 외출", "❌ 결석", "🏛️ 공가(공결)"]
+curr_idx: int = status_options.index(current_record["status"]) if current_record["status"] in status_options else 0
+
+in_status: str = st.selectbox("출결 상태 선택", options=status_options, index=curr_idx, disabled=is_disabled)
+in_memo: str = st.text_input("📝 메모 / 사유 입력 (최대 50자)", value=current_record.get("memo", ""), max_chars=50, disabled=is_disabled)
+
+current_used_official: int = sum(
+    1 for d_str, rec in st.session_state.daily_records.items()
+    if datetime.datetime.strptime(d_str, "%Y-%m-%d").date().month == selected_month
+    and rec.get("status") == "🏛️ 공가(공결)" and d_str != str_date
+)
+
+def delete_record_by_key(target_key: str) -> None:
+    """
+    지정된 날짜 키의 기록을 삭제하고 GitHub Private Gist에 동기화합니다.
+    """
+    assert isinstance(target_key, str), "target_key는 반드시 문자열 형태여야 합니다."
+    if target_key in st.session_state.daily_records:
+        st.session_state.daily_records.pop(target_key, None)
+        if persist_daily_records():
+            st.warning(f"🗑️ {target_key} 기록이 삭제되었습니다.")
+        else:
+            st.error("⚠️ 서버 저장에 실패했습니다. (GITHUB_TOKEN/GIST_ID 설정을 확인해주세요)")
+        st.rerun()
+
+col_btn1, col_btn2 = st.columns(2)
+
+with col_btn1:
+    if st.button("💾 출결 저장", type="primary", use_container_width=True, disabled=is_disabled):
+        if in_status == "🏛️ 공가(공결)" and (current_used_official + 1 > max_official_limit):
+            st.error(f"❌ 이번 달 최대 공가 한도({max_official_limit}일)를 초과할 수 없습니다!")
+        else:
+            st.session_state.daily_records[str_date] = {
+                "status": in_status,
+                "memo": in_memo.strip()
+            }
+            if persist_daily_records():
+                st.success(f"✅ {str_date} 기록이 저장되었습니다.")
+            else:
+                st.error("⚠️ 서버 저장에 실패했습니다. (GITHUB_TOKEN/GIST_ID 설정을 확인해주세요) 새로고침하면 방금 입력한 내용이 사라질 수 있습니다.")
+            st.rerun()
+
+with col_btn2:
+    has_record: bool = str_date in st.session_state.daily_records
+    if st.button("🗑️ 선택 날짜 삭제", use_container_width=True, disabled=(is_disabled or not has_record)):
+        delete_record_by_key(target_key=str_date)
+
+st.divider()
+
+# 5. 선택 월 기준 목록 출력
+st.subheader(f"📜 {selected_month}월 출결 기록 목록")
 
 monthly_records: List[Tuple[str, Dict[str, Any]]] = [
     (d, r) for d, r in st.session_state.daily_records.items()
