@@ -92,14 +92,28 @@ def migrate_legacy_format(data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 if "user_name" not in st.session_state:
     st.session_state.user_name = st.query_params.get("user", "").strip()
 
+RESERVED_USER_NAMES: set = {"미지정(기존기록)"}
+
 if not st.session_state.user_name:
     st.title("📱 7기 출결 계산기")
     st.info("👋 처음 오셨네요! 사용하실 이름(또는 닉네임)을 입력해주세요.")
+
+    # 이미 등록된 이름과 겹치는지 확인하기 위해 현재 존재하는 이름 목록을 미리 조회
+    existing_raw: Optional[Dict[str, Any]] = load_from_gist()
+    existing_names: set = (
+        set(migrate_legacy_format(existing_raw).keys()) | RESERVED_USER_NAMES
+        if existing_raw is not None else RESERVED_USER_NAMES
+    )
+
     name_input: str = st.text_input("이름 / 닉네임", key="name_onboarding_input")
-    if st.button("시작하기", type="primary", disabled=not name_input.strip()):
-        chosen_name: str = name_input.strip()
-        st.session_state.user_name = chosen_name
-        st.query_params["user"] = chosen_name
+    trimmed_name: str = name_input.strip()
+    name_taken: bool = trimmed_name != "" and trimmed_name in existing_names
+    if name_taken:
+        st.error(f"❌ '{trimmed_name}'은(는) 이미 사용 중인 이름입니다. 다른 사람과 겹치지 않도록 학번이나 초성 등을 붙여서 다시 입력해주세요. (예: {trimmed_name}2)")
+
+    if st.button("시작하기", type="primary", disabled=(not trimmed_name or name_taken)):
+        st.session_state.user_name = trimmed_name
+        st.query_params["user"] = trimmed_name
         st.rerun()
     st.stop()
 
