@@ -71,12 +71,69 @@ def save_to_gist(records: Dict[str, Dict[str, Any]]) -> bool:
     except Exception:
         return False
 
-# 세션 데이터 로드
+def migrate_legacy_format(data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """
+    사용자 구분이 없던 예전 버전 데이터(날짜 키 바로 아래 status/memo)를
+    '미지정(기존기록)' 사용자 아래로 옮겨서 데이터 손실 없이 새 구조로 맞춥니다.
+    """
+    if not data:
+        return data
+    sample_value = next(iter(data.values()))
+    if isinstance(sample_value, dict) and "status" in sample_value:
+        return {"미지정(기존기록)": data}
+    return data
+
+# --- 사용자 식별: 로그인 없이, 주소창 URL(?user=이름)로 사용자를 구분 ---
+# 새 컴포넌트/외부 저장소 없이 st.query_params만 사용 — 새로고침에도 유지되고,
+# 이 링크를 즐겨찾기해두면 다음 방문 때도 자동으로 같은 사람의 기록이 열린다.
+if "user_name" not in st.session_state:
+    st.session_state.user_name = st.query_params.get("user", "").strip()
+
+if not st.session_state.user_name:
+    st.title("📱 7기 출결 계산기")
+    st.info("👋 처음 오셨네요! 사용하실 이름(또는 닉네임)을 입력해주세요.")
+    name_input: str = st.text_input("이름 / 닉네임", key="name_onboarding_input")
+    if st.button("시작하기", type="primary", disabled=not name_input.strip()):
+        chosen_name: str = name_input.strip()
+        st.session_state.user_name = chosen_name
+        st.query_params["user"] = chosen_name
+        st.rerun()
+    st.stop()
+
+if st.query_params.get("user") != st.session_state.user_name:
+    st.query_params["user"] = st.session_state.user_name
+
+# 세션 데이터 로드 (전체 사용자 데이터 -> 현재 사용자 기록만 분리)
+if "all_records" not in st.session_state:
+    st.session_state.all_records = migrate_legacy_format(load_from_gist())
 if "daily_records" not in st.session_state:
-    st.session_state.daily_records = load_from_gist()
+    st.session_state.daily_records = st.session_state.all_records.get(st.session_state.user_name, {})
+
+def persist_daily_records() -> bool:
+    """
+    현재 사용자의 기록을 전체 사용자 구조에 반영한 뒤 Gist에 저장합니다.
+    """
+    st.session_state.all_records[st.session_state.user_name] = st.session_state.daily_records
+    return save_to_gist(st.session_state.all_records)
 
 st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
 st.title("📱 7기 출결 계산기")
+
+top_col1, top_col2 = st.columns([4, 1.3])
+with top_col1:
+    st.caption(f"👤 현재 사용자: **{st.session_state.user_name}**")
+with top_col2:
+    if st.button("🔄 다른 사람으로", use_container_width=True, help="이름을 지우고 다시 입력합니다."):
+        del st.query_params["user"]
+        del st.session_state["user_name"]
+        del st.session_state["daily_records"]
+        del st.session_state["all_records"]
+        st.rerun()
+
+st.caption("💡 지금 이 페이지 주소를 즐겨찾기/북마크해두면, 다음에 그 링크로 들어올 때 자동으로 본인 기록이 열립니다.")
+
+if not GITHUB_TOKEN or not GIST_ID:
+    st.warning("⚠️ 서버 저장이 설정되어 있지 않습니다 (GITHUB_TOKEN/GIST_ID 미설정). 지금 입력하는 기록은 이 화면을 벗어나면 사라집니다.")
 
 # 1. 오늘 날짜 기준 기본 월 지정
 today: datetime.date = datetime.date.today()
@@ -215,8 +272,10 @@ def delete_record_by_key(target_key: str) -> None:
     assert isinstance(target_key, str), "target_key는 반드시 문자열 형태여야 합니다."
     if target_key in st.session_state.daily_records:
         st.session_state.daily_records.pop(target_key, None)
-        save_to_gist(st.session_state.daily_records)
-        st.warning(f"🗑️ {target_key} 기록이 삭제되었습니다.")
+        if persist_daily_records():
+            st.warning(f"🗑️ {target_key} 기록이 삭제되었습니다.")
+        else:
+            st.error("⚠️ 서버 저장에 실패했습니다. (GITHUB_TOKEN/GIST_ID 설정을 확인해주세요)")
         st.rerun()
 
 col_btn1, col_btn2 = st.columns(2)
@@ -230,8 +289,10 @@ with col_btn1:
                 "status": in_status,
                 "memo": in_memo.strip()
             }
-            save_to_gist(st.session_state.daily_records)
-            st.success(f"✅ {str_date} 기록이 저장되었습니다.")
+            if persist_daily_records():
+                st.success(f"✅ {str_date} 기록이 저장되었습니다.")
+            else:
+                st.error("⚠️ 서버 저장에 실패했습니다. (GITHUB_TOKEN/GIST_ID 설정을 확인해주세요) 새로고침하면 방금 입력한 내용이 사라질 수 있습니다.")
             st.rerun()
 
 with col_btn2:
