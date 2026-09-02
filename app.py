@@ -237,20 +237,20 @@ def delete_user_account(name: str) -> bool:
 
 st.title("📱 인사교 7기 출결 계산기")
 
-top_col1, top_col2, top_col3 = st.columns([4.2, 1.4, 1.4], wrap=False)
+pin_suffix: str = f" · 🔑 비밀번호: **{st.session_state.user_pin}**" if st.session_state.user_pin else ""
+st.caption(f"👤 사용자명: **{st.session_state.user_name}**{pin_suffix}")
+
+top_col1, top_col2 = st.columns(2, wrap=False)
 with top_col1:
-    pin_suffix: str = f" · 🔑 비밀번호: **{st.session_state.user_pin}**" if st.session_state.user_pin else ""
-    st.caption(f"👤 사용자명: **{st.session_state.user_name}**{pin_suffix}")
-with top_col2:
-    if st.button("🔄 다른 사람으로", help="이름을 지우고 다시 입력합니다."):
+    if st.button("🔄 전환", help="다른 사람으로 전환 (이름을 지우고 다시 입력합니다)"):
         del st.query_params["user"]
         del st.session_state["user_name"]
         del st.session_state["daily_records"]
         del st.session_state["all_records"]
         st.session_state.pop("user_pin", None)
         st.rerun()
-with top_col3:
-    if st.button("🗑️ 계정 삭제", help="현재 이름/기록/비밀번호를 서버에서 완전히 삭제합니다."):
+with top_col2:
+    if st.button("🗑️ 삭제", help="현재 계정(이름/기록/비밀번호)을 서버에서 완전히 삭제합니다."):
         st.session_state.confirm_delete_account = True
         st.rerun()
 
@@ -355,20 +355,17 @@ with m_col2:
 
 rem_official_days: int = max_official_limit - cal_official
 st.caption(f"🏛️ **공가 사용 현황:** {cal_official}일 사용 / 총 {max_official_limit}일 가능 (남은 찬스: {rem_official_days}일)")
-st.caption("⚠️ 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
 
 st.markdown("##### ⏳ 1결석 추가 차감까지 남은 찬스")
-c1, c2, c3 = st.columns(3, wrap=False)
 rem_tardy: int = 3 - (cal_tardy % 3) if (cal_tardy % 3) != 0 else 3
 rem_early: int = 3 - (cal_early % 3) if (cal_early % 3) != 0 else 3
 rem_out: int = 3 - (cal_out % 3) if (cal_out % 3) != 0 else 3
 
-with c1:
-    st.metric("⏰ 지각 잔여", f"{rem_tardy}회", help=f"현재 {cal_tardy}회 누적 중")
-with c2:
-    st.metric("🏃 조퇴 잔여", f"{rem_early}회", help=f"현재 {cal_early}회 누적 중")
-with c3:
-    st.metric("🚶 외출 잔여", f"{rem_out}회", help=f"현재 {cal_out}회 누적 중")
+st.caption(
+    f"⏰ 지각 잔여 **{rem_tardy}회**(누적 {cal_tardy}회) · "
+    f"🏃 조퇴 잔여 **{rem_early}회**(누적 {cal_early}회) · "
+    f"🚶 외출 잔여 **{rem_out}회**(누적 {cal_out}회)"
+)
 
 st.divider()
 
@@ -477,7 +474,7 @@ st.divider()
 # 5. 선택 월 기준 목록 출력
 with st.popover(f"📅 {selected_month}월 조회"):
     st.caption("월 선택 (여러 달 한 번에 이동)")
-    grid_cols = st.columns(4)
+    grid_cols = st.columns(4, wrap=False)
     for i, m in enumerate(MONTH_OPTIONS):
         with grid_cols[i % 4]:
             if st.button(
