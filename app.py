@@ -32,7 +32,7 @@ STATUS_SHORT_NAME: Dict[str, str] = {
     "🟢 정상출석": "정상"
 }
 
-st.set_page_config(page_title="7기 출결 계산기", page_icon="📱", layout="centered")
+st.set_page_config(page_title="인사교 7기 출결 계산기", page_icon="📱", layout="centered")
 
 GITHUB_TOKEN: str = st.secrets.get("GITHUB_TOKEN", "")
 GIST_ID: str = st.secrets.get("GIST_ID", "")
@@ -122,7 +122,7 @@ def register_new_pin(name: str, pin: str) -> bool:
     return save_to_gist(latest_all_records)
 
 if not st.session_state.user_name:
-    st.title("📱 7기 출결 계산기")
+    st.title("📱 인사교 7기 출결 계산기")
     st.info("👋 이름과 4자리 숫자 비밀번호를 입력해주세요. 처음 등록하는 이름이면 그 비밀번호로 새로 등록되고, 이미 있는 이름이면 그때 정한 비밀번호로 본인 확인을 합니다.")
 
     # 이미 등록된 이름 목록과 비밀번호를 미리 조회 (겹침 확인 + 본인 확인용)
@@ -236,9 +236,9 @@ def delete_user_account(name: str) -> bool:
     return save_to_gist(latest_all_records)
 
 st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
-st.title("📱 7기 출결 계산기")
+st.title("📱 인사교 7기 출결 계산기")
 
-top_col1, top_col2 = st.columns([4, 1.3])
+top_col1, top_col2, top_col3 = st.columns([3.4, 1.8, 1.6])
 with top_col1:
     pin_suffix: str = f" · 🔑 {st.session_state.user_pin}" if st.session_state.user_pin else ""
     st.caption(f"👤 현재 사용자: **{st.session_state.user_name}**{pin_suffix}")
@@ -249,6 +249,10 @@ with top_col2:
         del st.session_state["daily_records"]
         del st.session_state["all_records"]
         st.session_state.pop("user_pin", None)
+        st.rerun()
+with top_col3:
+    if st.button("🗑️ 계정 삭제", type="tertiary", use_container_width=True, help="현재 이름/기록/비밀번호를 서버에서 완전히 삭제합니다."):
+        st.session_state.confirm_delete_account = True
         st.rerun()
 
 if st.session_state.get("confirm_delete_account"):
@@ -273,10 +277,6 @@ if st.session_state.get("confirm_delete_account"):
         if st.button("취소", use_container_width=True):
             st.session_state.pop("confirm_delete_account", None)
             st.rerun()
-else:
-    if st.button("🗑️ 이 계정 삭제", type="tertiary", help="현재 이름/기록/비밀번호를 서버에서 완전히 삭제합니다."):
-        st.session_state.confirm_delete_account = True
-        st.rerun()
 
 st.caption("💡 지금 이 페이지 주소를 즐겨찾기/북마크해두면, 다음에 그 링크로 들어올 때 자동으로 본인 기록이 열립니다.")
 

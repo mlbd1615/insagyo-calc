@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A single-page Streamlit app ("7기 출결 계산기" — a cohort attendance calculator) for tracking daily
+A single-page Streamlit app ("인사교 7기 출결 계산기" — a cohort attendance calculator) for tracking daily
 attendance status (정상출석/지각/조퇴/외출/결석/공가) against a 2026 program schedule (May–Dec), and
 computing whether attendance stays above required thresholds. All UI copy and domain labels are in Korean.
 
