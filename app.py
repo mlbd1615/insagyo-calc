@@ -205,8 +205,7 @@ result: Dict[str, Any] = attendance.calculate_attendance_tool(
     absent_days=cal_absent,
     tardy_count=cal_tardy,
     early_leave_count=cal_early,
-    out_count=cal_out,
-    official_leave_days=0
+    out_count=cal_out
 )
 
 # 2. 📊 출결 현황판
@@ -334,8 +333,7 @@ sim_result: Dict[str, Any] = attendance.calculate_attendance_tool(
     absent_days=absent_input,
     tardy_count=tardy_input,
     early_leave_count=early_leave_input,
-    out_count=out_input,
-    official_leave_days=0
+    out_count=out_input
 )
 
 sim_converted: int = (tardy_input // 3) + (early_leave_input // 3) + (out_input // 3)
