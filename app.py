@@ -210,6 +210,22 @@ def persist_daily_records() -> bool:
         st.session_state.all_records = latest_all_records
     return success
 
+def delete_user_account(name: str) -> bool:
+    """
+    Gist에서 해당 이름의 기록과 비밀번호를 완전히 삭제합니다. 최신 데이터를 다시
+    읽어와 이 이름의 항목만 제거하고 다른 사람 데이터는 그대로 둔 채 저장합니다.
+    """
+    latest_raw: Optional[Dict[str, Any]] = load_from_gist()
+    if latest_raw is None:
+        return False
+    latest_all_records: Dict[str, Any] = migrate_legacy_format(latest_raw)
+    latest_all_records.pop(name, None)
+    latest_pins: Dict[str, str] = latest_all_records.get(PIN_BUCKET_KEY, {})
+    if isinstance(latest_pins, dict):
+        latest_pins.pop(name, None)
+        latest_all_records[PIN_BUCKET_KEY] = latest_pins
+    return save_to_gist(latest_all_records)
+
 st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
 st.title("📱 7기 출결 계산기")
 
@@ -224,6 +240,33 @@ with top_col2:
         del st.session_state["daily_records"]
         del st.session_state["all_records"]
         st.session_state.pop("user_pin", None)
+        st.rerun()
+
+if st.session_state.get("confirm_delete_account"):
+    st.warning(f"⚠️ '{st.session_state.user_name}' 계정의 기록과 비밀번호를 서버에서 영구 삭제합니다. 되돌릴 수 없습니다.")
+    dc1, dc2 = st.columns(2)
+    with dc1:
+        if st.button("✅ 정말 삭제", type="primary", use_container_width=True):
+            deleted_name: str = st.session_state.user_name
+            deleted_ok: bool = delete_user_account(deleted_name)
+            del st.query_params["user"]
+            del st.session_state["user_name"]
+            del st.session_state["daily_records"]
+            del st.session_state["all_records"]
+            st.session_state.pop("user_pin", None)
+            st.session_state.pop("confirm_delete_account", None)
+            if deleted_ok:
+                st.success(f"'{deleted_name}' 계정이 삭제되었습니다.")
+            else:
+                st.error("삭제에 실패했습니다. 잠시 후 다시 시도해주세요.")
+            st.rerun()
+    with dc2:
+        if st.button("취소", use_container_width=True):
+            st.session_state.pop("confirm_delete_account", None)
+            st.rerun()
+else:
+    if st.button("🗑️ 이 계정 삭제", type="tertiary", help="현재 이름/기록/비밀번호를 서버에서 완전히 삭제합니다."):
+        st.session_state.confirm_delete_account = True
         st.rerun()
 
 st.caption("💡 지금 이 페이지 주소를 즐겨찾기/북마크해두면, 다음에 그 링크로 들어올 때 자동으로 본인 기록이 열립니다.")
@@ -435,10 +478,10 @@ monthly_records: List[Tuple[str, Dict[str, Any]]] = [
 
 if monthly_records:
     for d_str, rec in sorted(monthly_records):
-        col_del, col_text = st.columns([0.8, 9.2])
-        
+        col_del, col_text = st.columns([0.5, 9.5])
+
         with col_del:
-            if st.button("❌", key=f"btn_del_{d_str}", help=f"{d_str} 기록 삭제"):
+            if st.button("(삭제)", type="tertiary", key=f"btn_del_{d_str}", help=f"{d_str} 기록 삭제"):
                 delete_record_by_key(target_key=d_str)
 
         st_val: str = rec.get("status", "🟢 정상출석")
