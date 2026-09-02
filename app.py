@@ -178,6 +178,11 @@ if "all_records" not in st.session_state:
     st.session_state.all_records = migrate_legacy_format(load_from_gist() or {})
 if "daily_records" not in st.session_state:
     st.session_state.daily_records = st.session_state.all_records.get(st.session_state.user_name, {})
+if "user_pin" not in st.session_state:
+    pins_bucket: Dict[str, str] = st.session_state.all_records.get(PIN_BUCKET_KEY, {})
+    if not isinstance(pins_bucket, dict):
+        pins_bucket = {}
+    st.session_state.user_pin = pins_bucket.get(st.session_state.user_name)
 
 def persist_daily_records() -> bool:
     """
@@ -203,13 +208,15 @@ st.title("📱 7기 출결 계산기")
 
 top_col1, top_col2 = st.columns([4, 1.3])
 with top_col1:
-    st.caption(f"👤 현재 사용자: **{st.session_state.user_name}**")
+    pin_suffix: str = f" · 🔑 {st.session_state.user_pin}" if st.session_state.user_pin else ""
+    st.caption(f"👤 현재 사용자: **{st.session_state.user_name}**{pin_suffix}")
 with top_col2:
     if st.button("🔄 다른 사람으로", use_container_width=True, help="이름을 지우고 다시 입력합니다."):
         del st.query_params["user"]
         del st.session_state["user_name"]
         del st.session_state["daily_records"]
         del st.session_state["all_records"]
+        st.session_state.pop("user_pin", None)
         st.rerun()
 
 st.caption("💡 지금 이 페이지 주소를 즐겨찾기/북마크해두면, 다음에 그 링크로 들어올 때 자동으로 본인 기록이 열립니다.")
