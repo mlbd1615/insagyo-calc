@@ -235,10 +235,9 @@ def delete_user_account(name: str) -> bool:
         latest_all_records[PIN_BUCKET_KEY] = latest_pins
     return save_to_gist(latest_all_records)
 
-st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
 st.title("📱 인사교 7기 출결 계산기")
 
-top_col1, top_col2, top_col3 = st.columns([4.2, 1.4, 1.4])
+top_col1, top_col2, top_col3 = st.columns([4.2, 1.4, 1.4], wrap=False)
 with top_col1:
     pin_suffix: str = f" · 🔑 비밀번호: **{st.session_state.user_pin}**" if st.session_state.user_pin else ""
     st.caption(f"👤 사용자명: **{st.session_state.user_name}**{pin_suffix}")
@@ -356,9 +355,10 @@ with m_col2:
 
 rem_official_days: int = max_official_limit - cal_official
 st.caption(f"🏛️ **공가 사용 현황:** {cal_official}일 사용 / 총 {max_official_limit}일 가능 (남은 찬스: {rem_official_days}일)")
+st.caption("⚠️ 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
 
 st.markdown("##### ⏳ 1결석 추가 차감까지 남은 찬스")
-c1, c2, c3 = st.columns(3)
+c1, c2, c3 = st.columns(3, wrap=False)
 rem_tardy: int = 3 - (cal_tardy % 3) if (cal_tardy % 3) != 0 else 3
 rem_early: int = 3 - (cal_early % 3) if (cal_early % 3) != 0 else 3
 rem_out: int = 3 - (cal_out % 3) if (cal_out % 3) != 0 else 3
@@ -373,9 +373,9 @@ with c3:
 st.divider()
 
 # 3. 가상 시뮬레이터
-st.subheader("✏️ 출결 시뮬레이터 (가상 테스트)")
+st.subheader("✏️ 출결 시뮬레이터")
 
-col_in1, col_in2 = st.columns(2)
+col_in1, col_in2 = st.columns(2, wrap=False)
 with col_in1:
     absent_input = int(st.number_input("결석 일수", min_value=0, max_value=20, value=cal_absent, step=1, format="%d"))
     tardy_input = int(st.number_input("지각 횟수", min_value=0, max_value=20, value=cal_tardy, step=1, format="%d"))
