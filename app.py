@@ -349,7 +349,7 @@ remaining_safe_absent: int = max(0, max_allowed_absent - net_total_absent)
 
 m_col1, m_col2 = st.columns(2)
 with m_col1:
-    st.metric("🔥 남은 결석 가능 일수", f"{remaining_safe_absent}일 남음")
+    st.metric("🔥 남은 결석 가능 일수", f"{remaining_safe_absent}일")
 with m_col2:
     st.metric("현재 출석률", f"{result['attendance_rate']} %")
 
@@ -361,11 +361,12 @@ rem_tardy: int = 3 - (cal_tardy % 3) if (cal_tardy % 3) != 0 else 3
 rem_early: int = 3 - (cal_early % 3) if (cal_early % 3) != 0 else 3
 rem_out: int = 3 - (cal_out % 3) if (cal_out % 3) != 0 else 3
 
-st.caption(
-    f"⏰ 지각 잔여 **{rem_tardy}회**(누적 {cal_tardy}회) · "
-    f"🏃 조퇴 잔여 **{rem_early}회**(누적 {cal_early}회) · "
-    f"🚶 외출 잔여 **{rem_out}회**(누적 {cal_out}회)"
-)
+# 세로로 한 줄씩 표시 — 한 줄로 붙이면 모바일 폭에서 단어 중간이 잘려 보인다.
+# st.caption은 옅은 회색이라 가독성이 떨어져서, 소제목(#####)보다는 작지만
+# st.caption보다는 진하고 큰 st.markdown 기본 텍스트로 표시한다.
+st.markdown(f"⏰ 지각 잔여 **{rem_tardy}회** (누적 {cal_tardy}회)")
+st.markdown(f"🏃 조퇴 잔여 **{rem_early}회** (누적 {cal_early}회)")
+st.markdown(f"🚶 외출 잔여 **{rem_out}회** (누적 {cal_out}회)")
 
 st.divider()
 
@@ -473,14 +474,12 @@ st.divider()
 
 # 5. 선택 월 기준 목록 출력
 with st.popover(f"📅 {selected_month}월 조회"):
-    st.caption("월 선택 (여러 달 한 번에 이동)")
-    grid_cols = st.columns(4, wrap=False)
+    grid_cols = st.columns(4, wrap=False, gap="xxsmall")
     for i, m in enumerate(MONTH_OPTIONS):
         with grid_cols[i % 4]:
             if st.button(
                 f"{m}월",
                 key=f"jump_month_{m}",
-                use_container_width=True,
                 type=("primary" if m == selected_month else "secondary"),
             ):
                 st.session_state.selected_month = m
