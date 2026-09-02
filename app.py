@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
 import pandas as pd
 import requests
@@ -28,12 +28,15 @@ st.set_page_config(page_title="7기 출결 계산기", page_icon="📱", layout=
 GITHUB_TOKEN: str = st.secrets.get("GITHUB_TOKEN", "")
 GIST_ID: str = st.secrets.get("GIST_ID", "")
 
-def load_from_gist() -> Dict[str, Dict[str, Any]]:
+def load_from_gist() -> Optional[Dict[str, Dict[str, Any]]]:
     """
     GitHub Private Gist API에서 출결 데이터를 동기화하여 가져옵니다.
+    성공하면 dict(빈 Gist면 {})를 반환하고, 시크릿 미설정/네트워크 실패/비정상
+    응답이면 None을 반환합니다. "진짜 비어있음"과 "가져오기 실패"를 구분해야
+    저장 시 실패를 빈 데이터로 착각해 다른 사람의 기록을 덮어쓰는 사고를 막을 수 있습니다.
     """
     if not GITHUB_TOKEN or not GIST_ID:
-        return {}
+        return None
     url: str = f"https://api.github.com/gists/{GIST_ID}"
     headers: Dict[str, str] = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
     try:
@@ -46,7 +49,7 @@ def load_from_gist() -> Dict[str, Dict[str, Any]]:
             return parsed if isinstance(parsed, dict) else {}
     except Exception:
         pass
-    return {}
+    return None
 
 def save_to_gist(records: Dict[str, Dict[str, Any]]) -> bool:
     """
@@ -105,16 +108,28 @@ if st.query_params.get("user") != st.session_state.user_name:
 
 # 세션 데이터 로드 (전체 사용자 데이터 -> 현재 사용자 기록만 분리)
 if "all_records" not in st.session_state:
-    st.session_state.all_records = migrate_legacy_format(load_from_gist())
+    st.session_state.all_records = migrate_legacy_format(load_from_gist() or {})
 if "daily_records" not in st.session_state:
     st.session_state.daily_records = st.session_state.all_records.get(st.session_state.user_name, {})
 
 def persist_daily_records() -> bool:
     """
-    현재 사용자의 기록을 전체 사용자 구조에 반영한 뒤 Gist에 저장합니다.
+    현재 사용자의 기록을 Gist에 저장합니다.
+    저장 직전에 Gist의 최신 전체 데이터를 다시 읽어와서, 그 위에 "내 이름" 아래
+    데이터만 새 값으로 바꾸고 다른 사람 이름 아래 데이터는 그대로 둔 채 합쳐서 씁니다.
+    (페이지를 연 시점의 낡은 캐시를 그대로 덮어쓰면, 그 사이 다른 사람이 저장한
+    내용이 통째로 사라질 수 있기 때문입니다.) 최신 데이터를 가져오는 것 자체가
+    실패하면, 무엇을 덮어쓸지 알 수 없으므로 저장을 시도하지 않고 바로 실패 처리합니다.
     """
-    st.session_state.all_records[st.session_state.user_name] = st.session_state.daily_records
-    return save_to_gist(st.session_state.all_records)
+    latest_raw: Optional[Dict[str, Any]] = load_from_gist()
+    if latest_raw is None:
+        return False
+    latest_all_records: Dict[str, Dict[str, Any]] = migrate_legacy_format(latest_raw)
+    latest_all_records[st.session_state.user_name] = st.session_state.daily_records
+    success: bool = save_to_gist(latest_all_records)
+    if success:
+        st.session_state.all_records = latest_all_records
+    return success
 
 st.error("⚠️ **주의:** 임시공휴일 및 학원 지정 휴교일은 자동 반영되지 않습니다.")
 st.title("📱 7기 출결 계산기")
