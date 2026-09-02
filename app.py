@@ -114,7 +114,7 @@ def register_new_pin(name: str, pin: str) -> bool:
 
 if not st.session_state.user_name:
     st.title("📱 7기 출결 계산기")
-    st.info("👋 이름을 입력해주세요. 처음 등록하는 이름이면 4자리 숫자 비밀번호도 함께 정해주세요 — 나중에 같은 이름으로 다시 들어올 때 본인 확인용으로 씁니다.")
+    st.info("👋 이름과 4자리 숫자 비밀번호를 입력해주세요. 처음 등록하는 이름이면 그 비밀번호로 새로 등록되고, 이미 있는 이름이면 그때 정한 비밀번호로 본인 확인을 합니다.")
 
     # 이미 등록된 이름 목록과 비밀번호를 미리 조회 (겹침 확인 + 본인 확인용)
     existing_raw: Optional[Dict[str, Any]] = load_from_gist()
@@ -129,45 +129,52 @@ if not st.session_state.user_name:
         if existing_raw is not None else set()
     )
 
-    name_input: str = st.text_input("이름 / 닉네임", key="name_onboarding_input")
-    trimmed_name: str = name_input.strip()
+    # 입력마다 "Press Enter to apply"가 뜨는 걸 피하려고 폼으로 묶어서 한 번에 제출받는다.
+    with st.form("onboarding_form"):
+        name_input: str = st.text_input("이름 / 닉네임")
+        pin_input: str = st.text_input(
+            "비밀번호 (4자리 숫자)",
+            type="password",
+            max_chars=4,
+            help="처음 등록하는 이름이면 새로 쓸 비밀번호, 이미 있는 이름이면 그때 정한 비밀번호를 입력하세요.",
+        )
+        submitted: bool = st.form_submit_button("시작하기", type="primary")
 
-    is_reserved: bool = trimmed_name in RESERVED_USER_NAMES
-    is_existing: bool = (not is_reserved) and trimmed_name in existing_names
-    stored_pin: str = existing_pins.get(trimmed_name, "")
-    is_legacy_no_pin: bool = is_existing and stored_pin == ""
+    if submitted:
+        trimmed_name: str = name_input.strip()
+        trimmed_pin: str = pin_input.strip()
 
-    pin_input: str = ""
-    if is_reserved and trimmed_name != "":
-        st.error(f"❌ '{trimmed_name}'은(는) 사용할 수 없는 이름입니다.")
-    elif is_legacy_no_pin:
-        st.info(f"ℹ️ '{trimmed_name}'은(는) 비밀번호 도입 전에 등록된 이름이라 바로 이어서 쓸 수 있습니다.")
-    elif is_existing:
-        st.warning("🔒 이미 등록된 이름입니다. 처음 등록할 때 정한 4자리 비밀번호를 입력해주세요.")
-        pin_input = st.text_input("비밀번호 (4자리 숫자)", type="password", max_chars=4, key="pin_input").strip()
-    elif trimmed_name != "":
-        pin_input = st.text_input("새 비밀번호 설정 (4자리 숫자, 다음에 다시 쓸 때 필요해요)", type="password", max_chars=4, key="pin_input").strip()
+        is_reserved: bool = trimmed_name in RESERVED_USER_NAMES
+        is_existing: bool = (not is_reserved) and trimmed_name in existing_names
+        stored_pin: str = existing_pins.get(trimmed_name, "")
+        is_legacy_no_pin: bool = is_existing and stored_pin == ""
+        pin_valid_format: bool = trimmed_pin.isdigit() and len(trimmed_pin) == 4
 
-    can_proceed: bool = False
-    if trimmed_name != "" and not is_reserved:
-        if is_legacy_no_pin:
-            can_proceed = True
-        else:
-            pin_valid_format: bool = pin_input.isdigit() and len(pin_input) == 4
-            if is_existing:
-                if pin_valid_format and pin_input == stored_pin:
-                    can_proceed = True
-                elif pin_valid_format and pin_input != stored_pin:
-                    st.error("❌ 비밀번호가 틀렸습니다.")
+        if trimmed_name == "":
+            st.error("이름을 입력해주세요.")
+        elif is_reserved:
+            st.error(f"❌ '{trimmed_name}'은(는) 사용할 수 없는 이름입니다.")
+        elif is_legacy_no_pin:
+            st.session_state.user_name = trimmed_name
+            st.query_params["user"] = trimmed_name
+            st.rerun()
+        elif is_existing:
+            if not pin_valid_format:
+                st.error("비밀번호는 숫자 4자리여야 합니다.")
+            elif trimmed_pin != stored_pin:
+                st.error("❌ 비밀번호가 틀렸습니다.")
             else:
-                can_proceed = pin_valid_format
-
-    if st.button("시작하기", type="primary", disabled=not can_proceed):
-        st.session_state.user_name = trimmed_name
-        st.query_params["user"] = trimmed_name
-        if not is_existing:
-            register_new_pin(trimmed_name, pin_input)
-        st.rerun()
+                st.session_state.user_name = trimmed_name
+                st.query_params["user"] = trimmed_name
+                st.rerun()
+        else:
+            if not pin_valid_format:
+                st.error("새 이름이면 비밀번호를 숫자 4자리로 정해주세요.")
+            else:
+                st.session_state.user_name = trimmed_name
+                st.query_params["user"] = trimmed_name
+                register_new_pin(trimmed_name, trimmed_pin)
+                st.rerun()
     st.stop()
 
 if st.query_params.get("user") != st.session_state.user_name:
