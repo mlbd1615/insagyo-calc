@@ -240,8 +240,8 @@ st.title("📱 인사교 7기 출결 계산기")
 
 top_col1, top_col2, top_col3 = st.columns([4.2, 1.4, 1.4])
 with top_col1:
-    pin_suffix: str = f" · 🔑 {st.session_state.user_pin}" if st.session_state.user_pin else ""
-    st.caption(f"👤 현재 사용자: **{st.session_state.user_name}**{pin_suffix}")
+    pin_suffix: str = f" · 🔑 비밀번호: **{st.session_state.user_pin}**" if st.session_state.user_pin else ""
+    st.caption(f"👤 사용자명: **{st.session_state.user_name}**{pin_suffix}")
 with top_col2:
     if st.button("🔄 다른 사람으로", help="이름을 지우고 다시 입력합니다."):
         del st.query_params["user"]
@@ -283,46 +283,20 @@ st.caption("💡 지금 이 페이지 주소를 즐겨찾기/북마크해두면,
 if not GITHUB_TOKEN or not GIST_ID:
     st.warning("⚠️ 서버 저장이 설정되어 있지 않습니다 (GITHUB_TOKEN/GIST_ID 미설정). 지금 입력하는 기록은 이 화면을 벗어나면 사라집니다.")
 
-# 1. 조회 월 선택
+# 1. 조회 월 상태 (선택 UI는 기록 목록 위에 따로 둔다 — 평소엔 이번 달만 보므로)
 today: datetime.date = datetime.date.today()
 MONTH_OPTIONS: List[int] = [5, 6, 7, 8, 9, 10, 11, 12]
 
 if "selected_month" not in st.session_state:
     st.session_state.selected_month = max(5, min(12, today.month))
 
-month_prev_col, month_label_col, month_next_col = st.columns([1, 2, 1])
-with month_prev_col:
-    if st.button("◀", use_container_width=True, disabled=st.session_state.selected_month <= 5):
-        st.session_state.selected_month -= 1
-        st.rerun()
-with month_label_col:
-    with st.popover(f"📅 {st.session_state.selected_month}월", use_container_width=True):
-        st.caption("월 선택 (여러 달 한 번에 이동)")
-        grid_cols = st.columns(4)
-        for i, m in enumerate(MONTH_OPTIONS):
-            with grid_cols[i % 4]:
-                if st.button(
-                    f"{m}월",
-                    key=f"jump_month_{m}",
-                    use_container_width=True,
-                    type=("primary" if m == st.session_state.selected_month else "secondary"),
-                ):
-                    st.session_state.selected_month = m
-                    st.rerun()
-with month_next_col:
-    if st.button("▶", use_container_width=True, disabled=st.session_state.selected_month >= 12):
-        st.session_state.selected_month += 1
-        st.rerun()
-
 selected_month: int = st.session_state.selected_month
 
 base_info: Dict[str, Any] = attendance.calculate_attendance_tool(month=selected_month)
 max_official_limit: int = int(base_info['max_official_leave'])
 
-st.divider()
-
 # 2. 📊 출결 현황판
-st.subheader("📊 출결 현황판")
+st.subheader(f"📊 {selected_month}월 출결 현황판")
 
 # 당월 확정 집계 연산 (NumPy 벡터화)
 monthly_list: List[Dict[str, Any]] = [
@@ -501,6 +475,20 @@ with col_btn2:
 st.divider()
 
 # 5. 선택 월 기준 목록 출력
+with st.popover(f"📅 {selected_month}월 조회"):
+    st.caption("월 선택 (여러 달 한 번에 이동)")
+    grid_cols = st.columns(4)
+    for i, m in enumerate(MONTH_OPTIONS):
+        with grid_cols[i % 4]:
+            if st.button(
+                f"{m}월",
+                key=f"jump_month_{m}",
+                use_container_width=True,
+                type=("primary" if m == selected_month else "secondary"),
+            ):
+                st.session_state.selected_month = m
+                st.rerun()
+
 st.subheader(f"📜 {selected_month}월 출결 기록 목록")
 
 monthly_records: List[Tuple[str, Dict[str, Any]]] = [
