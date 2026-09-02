@@ -283,101 +283,29 @@ st.caption("💡 지금 이 페이지 주소를 즐겨찾기/북마크해두면,
 if not GITHUB_TOKEN or not GIST_ID:
     st.warning("⚠️ 서버 저장이 설정되어 있지 않습니다 (GITHUB_TOKEN/GIST_ID 미설정). 지금 입력하는 기록은 이 화면을 벗어나면 사라집니다.")
 
-# 1. 오늘 날짜 기준 기본 월 지정
+# 1. 조회 월 선택 + 날짜별 출결 입력 / 저장 / 삭제 (가까이 붙여서 오갈 때 편하도록)
 today: datetime.date = datetime.date.today()
-current_month: int = max(5, min(12, today.month))
-month_options: List[int] = [5, 6, 7, 8, 9, 10, 11, 12]
-default_month_idx: int = month_options.index(current_month) if current_month in month_options else 0
 
-selected_month: int = st.selectbox(
-    "📅 조회 월 선택",
-    options=month_options,
-    index=default_month_idx,
-    format_func=lambda x: f"{x}월"
-)
+if "selected_month" not in st.session_state:
+    st.session_state.selected_month = max(5, min(12, today.month))
+
+month_prev_col, month_label_col, month_next_col = st.columns([1, 2, 1])
+with month_prev_col:
+    if st.button("◀", use_container_width=True, disabled=st.session_state.selected_month <= 5):
+        st.session_state.selected_month -= 1
+        st.rerun()
+with month_label_col:
+    st.markdown(f"<h4 style='text-align:center; margin:0;'>📅 {st.session_state.selected_month}월</h4>", unsafe_allow_html=True)
+with month_next_col:
+    if st.button("▶", use_container_width=True, disabled=st.session_state.selected_month >= 12):
+        st.session_state.selected_month += 1
+        st.rerun()
+
+selected_month: int = st.session_state.selected_month
 
 base_info: Dict[str, Any] = attendance.calculate_attendance_tool(month=selected_month)
 max_official_limit: int = int(base_info['max_official_leave'])
 
-# 당월 확정 집계 연산 (NumPy 벡터화)
-monthly_list: List[Dict[str, Any]] = [
-    rec for d_str, rec in st.session_state.daily_records.items()
-    if datetime.datetime.strptime(d_str, "%Y-%m-%d").date().month == selected_month
-]
-
-df_monthly: pd.DataFrame = pd.DataFrame(monthly_list)
-
-def count_attendance_vectorized(df_records: pd.DataFrame) -> Dict[str, int]:
-    """
-    DataFrame을 받아서 NumPy 1D C-Contiguous 텐서로 변환 후 브로드캐스팅 연산으로 집계합니다.
-    """
-    assert isinstance(df_records, pd.DataFrame), "df_records는 반드시 Pandas DataFrame이어야 합니다."
-
-    if df_records.empty or "status" not in df_records.columns:
-        return {"cal_tardy": 0, "cal_early": 0, "cal_absent": 0, "cal_official": 0, "cal_out": 0}
-
-    status_vec: np.ndarray = df_records["status"].to_numpy()
-
-    return {
-        "cal_tardy": int(np.sum(np.equal(status_vec, "⏰ 지각"))),
-        "cal_early": int(np.sum(np.equal(status_vec, "🏃 조퇴"))),
-        "cal_out": int(np.sum(np.equal(status_vec, "🚶 외출"))),
-        "cal_absent": int(np.sum(np.equal(status_vec, "❌ 결석"))),
-        "cal_official": int(np.sum(np.equal(status_vec, "🏛️ 공가(공결)")))
-    }
-
-counts: Dict[str, int] = count_attendance_vectorized(df_monthly)
-cal_tardy: int = counts["cal_tardy"]
-cal_early: int = counts["cal_early"]
-cal_out: int = counts["cal_out"]
-cal_absent: int = counts["cal_absent"]
-cal_official: int = counts["cal_official"]
-
-result: Dict[str, Any] = attendance.calculate_attendance_tool(
-    month=selected_month,
-    absent_days=cal_absent,
-    tardy_count=cal_tardy,
-    early_leave_count=cal_early,
-    out_count=cal_out
-)
-
-# 2. 📊 출결 현황판
-st.divider()
-st.subheader("📊 출결 현황판")
-
-total_days: int = int(result['total_days'])
-target_80_days: int = int(result['target_80_days'])
-max_allowed_absent: int = total_days - target_80_days
-
-converted_absent: int = (cal_tardy // 3) + (cal_early // 3) + (cal_out // 3)
-net_total_absent: int = cal_absent + converted_absent
-remaining_safe_absent: int = max(0, max_allowed_absent - net_total_absent)
-
-m_col1, m_col2 = st.columns(2)
-with m_col1:
-    st.metric("🔥 남은 결석 가능 일수", f"{remaining_safe_absent}일 남음")
-with m_col2:
-    st.metric("현재 출석률", f"{result['attendance_rate']} %")
-
-rem_official_days: int = max_official_limit - cal_official
-st.caption(f"🏛️ **공가 사용 현황:** {cal_official}일 사용 / 총 {max_official_limit}일 가능 (남은 찬스: {rem_official_days}일)")
-
-st.markdown("##### ⏳ 1결석 추가 차감까지 남은 찬스")
-c1, c2, c3 = st.columns(3)
-rem_tardy: int = 3 - (cal_tardy % 3) if (cal_tardy % 3) != 0 else 3
-rem_early: int = 3 - (cal_early % 3) if (cal_early % 3) != 0 else 3
-rem_out: int = 3 - (cal_out % 3) if (cal_out % 3) != 0 else 3
-
-with c1:
-    st.metric("⏰ 지각 잔여", f"{rem_tardy}회", help=f"현재 {cal_tardy}회 누적 중")
-with c2:
-    st.metric("🏃 조퇴 잔여", f"{rem_early}회", help=f"현재 {cal_early}회 누적 중")
-with c3:
-    st.metric("🚶 외출 잔여", f"{rem_out}회", help=f"현재 {cal_out}회 누적 중")
-
-st.divider()
-
-# 3. 날짜별 출결 입력 / 저장 / 삭제
 min_date: datetime.date = datetime.date(2026, selected_month, 1)
 max_date: datetime.date = datetime.date(2026, 12, 31) if selected_month == 12 else datetime.date(2026, selected_month + 1, 1) - datetime.timedelta(days=1)
 default_picker_date: datetime.date = today if min_date <= today <= max_date else min_date
@@ -449,7 +377,84 @@ with col_btn2:
 
 st.divider()
 
-# 4. 가상 시뮬레이터
+# 2. 📊 출결 현황판
+st.subheader("📊 출결 현황판")
+
+# 당월 확정 집계 연산 (NumPy 벡터화)
+monthly_list: List[Dict[str, Any]] = [
+    rec for d_str, rec in st.session_state.daily_records.items()
+    if datetime.datetime.strptime(d_str, "%Y-%m-%d").date().month == selected_month
+]
+
+df_monthly: pd.DataFrame = pd.DataFrame(monthly_list)
+
+def count_attendance_vectorized(df_records: pd.DataFrame) -> Dict[str, int]:
+    """
+    DataFrame을 받아서 NumPy 1D C-Contiguous 텐서로 변환 후 브로드캐스팅 연산으로 집계합니다.
+    """
+    assert isinstance(df_records, pd.DataFrame), "df_records는 반드시 Pandas DataFrame이어야 합니다."
+
+    if df_records.empty or "status" not in df_records.columns:
+        return {"cal_tardy": 0, "cal_early": 0, "cal_absent": 0, "cal_official": 0, "cal_out": 0}
+
+    status_vec: np.ndarray = df_records["status"].to_numpy()
+
+    return {
+        "cal_tardy": int(np.sum(np.equal(status_vec, "⏰ 지각"))),
+        "cal_early": int(np.sum(np.equal(status_vec, "🏃 조퇴"))),
+        "cal_out": int(np.sum(np.equal(status_vec, "🚶 외출"))),
+        "cal_absent": int(np.sum(np.equal(status_vec, "❌ 결석"))),
+        "cal_official": int(np.sum(np.equal(status_vec, "🏛️ 공가(공결)")))
+    }
+
+counts: Dict[str, int] = count_attendance_vectorized(df_monthly)
+cal_tardy: int = counts["cal_tardy"]
+cal_early: int = counts["cal_early"]
+cal_out: int = counts["cal_out"]
+cal_absent: int = counts["cal_absent"]
+cal_official: int = counts["cal_official"]
+
+result: Dict[str, Any] = attendance.calculate_attendance_tool(
+    month=selected_month,
+    absent_days=cal_absent,
+    tardy_count=cal_tardy,
+    early_leave_count=cal_early,
+    out_count=cal_out
+)
+
+total_days: int = int(result['total_days'])
+target_80_days: int = int(result['target_80_days'])
+max_allowed_absent: int = total_days - target_80_days
+
+converted_absent: int = (cal_tardy // 3) + (cal_early // 3) + (cal_out // 3)
+net_total_absent: int = cal_absent + converted_absent
+remaining_safe_absent: int = max(0, max_allowed_absent - net_total_absent)
+
+m_col1, m_col2 = st.columns(2)
+with m_col1:
+    st.metric("🔥 남은 결석 가능 일수", f"{remaining_safe_absent}일 남음")
+with m_col2:
+    st.metric("현재 출석률", f"{result['attendance_rate']} %")
+
+rem_official_days: int = max_official_limit - cal_official
+st.caption(f"🏛️ **공가 사용 현황:** {cal_official}일 사용 / 총 {max_official_limit}일 가능 (남은 찬스: {rem_official_days}일)")
+
+st.markdown("##### ⏳ 1결석 추가 차감까지 남은 찬스")
+c1, c2, c3 = st.columns(3)
+rem_tardy: int = 3 - (cal_tardy % 3) if (cal_tardy % 3) != 0 else 3
+rem_early: int = 3 - (cal_early % 3) if (cal_early % 3) != 0 else 3
+rem_out: int = 3 - (cal_out % 3) if (cal_out % 3) != 0 else 3
+
+with c1:
+    st.metric("⏰ 지각 잔여", f"{rem_tardy}회", help=f"현재 {cal_tardy}회 누적 중")
+with c2:
+    st.metric("🏃 조퇴 잔여", f"{rem_early}회", help=f"현재 {cal_early}회 누적 중")
+with c3:
+    st.metric("🚶 외출 잔여", f"{rem_out}회", help=f"현재 {cal_out}회 누적 중")
+
+st.divider()
+
+# 3. 가상 시뮬레이터
 st.subheader("✏️ 출결 시뮬레이터 (가상 테스트)")
 
 col_in1, col_in2 = st.columns(2)
@@ -477,7 +482,7 @@ st.info(f"💡 **시뮬레이션 결과:** 출석률 **{sim_result['attendance_r
 
 st.divider()
 
-# 5. 선택 월 기준 목록 출력
+# 4. 선택 월 기준 목록 출력
 st.subheader(f"📜 {selected_month}월 확정 기록 목록")
 
 monthly_records: List[Tuple[str, Dict[str, Any]]] = [
@@ -486,11 +491,30 @@ monthly_records: List[Tuple[str, Dict[str, Any]]] = [
 ]
 
 if monthly_records:
+    sort_order: str = st.segmented_control(
+        "정렬 순서",
+        options=["최신순", "오래된순"],
+        default="최신순",
+        label_visibility="collapsed",
+    ) or "최신순"
+
+    # 유형별 인덱스(지각1, 지각2 ...)는 화면에 보여주는 정렬 순서와 상관없이
+    # 항상 날짜 오름차순(오래된 것부터) 기준으로 매겨야 "1번째"라는 의미가 맞다.
+    chronological_records: List[Tuple[str, Dict[str, Any]]] = sorted(monthly_records)
     status_running_count: Dict[str, int] = {}
-    for d_str, rec in sorted(monthly_records):
+    index_labels: Dict[str, str] = {}
+    for d_str, rec in chronological_records:
         st_val: str = rec.get("status", "🟢 정상출석")
         status_running_count[st_val] = status_running_count.get(st_val, 0) + 1
-        index_label: str = f"{STATUS_SHORT_NAME.get(st_val, st_val)}{status_running_count[st_val]}"
+        index_labels[d_str] = f"{STATUS_SHORT_NAME.get(st_val, st_val)}{status_running_count[st_val]}"
+
+    display_records: List[Tuple[str, Dict[str, Any]]] = (
+        chronological_records if sort_order == "오래된순" else list(reversed(chronological_records))
+    )
+
+    for d_str, rec in display_records:
+        st_val: str = rec.get("status", "🟢 정상출석")
+        index_label: str = index_labels[d_str]
 
         with st.container(border=True):
             col_idx, col_text, col_del = st.columns([1.3, 7.2, 1.5])
