@@ -23,6 +23,15 @@ BADGE_STYLES: Dict[str, str] = {
     "🟢 정상출석": "background:#F1F3F4; color:#3C4043; border:1px solid #3C4043;"
 }
 
+STATUS_SHORT_NAME: Dict[str, str] = {
+    "🏛️ 공가(공결)": "공가",
+    "❌ 결석": "결석",
+    "⏰ 지각": "지각",
+    "🏃 조퇴": "조퇴",
+    "🚶 외출": "외출",
+    "🟢 정상출석": "정상"
+}
+
 st.set_page_config(page_title="7기 출결 계산기", page_icon="📱", layout="centered")
 
 GITHUB_TOKEN: str = st.secrets.get("GITHUB_TOKEN", "")
@@ -477,23 +486,30 @@ monthly_records: List[Tuple[str, Dict[str, Any]]] = [
 ]
 
 if monthly_records:
+    status_running_count: Dict[str, int] = {}
     for d_str, rec in sorted(monthly_records):
-        col_del, col_text = st.columns([0.5, 9.5])
-
-        with col_del:
-            if st.button("(삭제)", type="tertiary", key=f"btn_del_{d_str}", help=f"{d_str} 기록 삭제"):
-                delete_record_by_key(target_key=d_str)
-
         st_val: str = rec.get("status", "🟢 정상출석")
-        memo_val: str = rec.get("memo", "")
-        
-        display_memo: str = f"{memo_val[:15]}..." if len(memo_val) > 15 else memo_val
-        memo_str: str = f" | <span style='color:#5F6368;'>📝 {display_memo}</span>" if memo_val else ""
-        
-        style: str = BADGE_STYLES.get(st_val, BADGE_STYLES["🟢 정상출석"])
-        badge_html: str = f"<span style='padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold; {style}'>{st_val}</span>"
-        
-        with col_text:
-            st.markdown(f"**{d_str}** : {badge_html}{memo_str}", unsafe_allow_html=True)
+        status_running_count[st_val] = status_running_count.get(st_val, 0) + 1
+        index_label: str = f"{STATUS_SHORT_NAME.get(st_val, st_val)}{status_running_count[st_val]}"
+
+        with st.container(border=True):
+            col_idx, col_text, col_del = st.columns([1.3, 7.2, 1.5])
+
+            with col_idx:
+                st.markdown(f"**{index_label}**")
+
+            memo_val: str = rec.get("memo", "")
+            display_memo: str = f"{memo_val[:15]}..." if len(memo_val) > 15 else memo_val
+            memo_str: str = f" | <span style='color:#5F6368;'>📝 {display_memo}</span>" if memo_val else ""
+
+            style: str = BADGE_STYLES.get(st_val, BADGE_STYLES["🟢 정상출석"])
+            badge_html: str = f"<span style='padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold; {style}'>{st_val}</span>"
+
+            with col_text:
+                st.markdown(f"**{d_str}** : {badge_html}{memo_str}", unsafe_allow_html=True)
+
+            with col_del:
+                if st.button("삭제", type="tertiary", key=f"btn_del_{d_str}", help=f"{d_str} 기록 삭제"):
+                    delete_record_by_key(target_key=d_str)
 else:
     st.caption("아직 이번 달에 입력된 확정 기록이 없습니다.")
