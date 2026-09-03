@@ -249,7 +249,7 @@ st.markdown("""
     margin-bottom: 16px;
 }
 .metric-header {
-    font-size: clamp(14px, 3.5vw, 16px);
+    font-size: clamp(16px, 4vw, 18px);
     font-weight: 700;
     color: #1E293B;
     margin-bottom: 12px;
@@ -270,7 +270,7 @@ st.markdown("""
     background-color: #E2E8F0;
 }
 .metric-label {
-    font-size: clamp(11px, 2.8vw, 13px);
+    font-size: clamp(13px, 3vw, 15px);
     color: #64748B;
     font-weight: 500;
 }
@@ -291,12 +291,9 @@ st.markdown("""
 .metric-footer {
     border-top: 1px dashed #E2E8F0;
     padding-top: 10px;
-    font-size: clamp(11px, 2.7vw, 12px);
+    font-size: clamp(13px, 3vw, 14px);
     color: #334155;
     line-height: 1.6;
-}
-div[data-testid="stHorizontalBlock"]:has(.st-key-btn_act_switch) {
-    gap: 4px !important;
 }
 .st-key-btn_act_switch button, .st-key-btn_act_del button {
     padding: 2px 8px !important;
@@ -307,20 +304,20 @@ div[data-testid="stHorizontalBlock"]:has(.st-key-btn_act_switch) {
 </style>
 """, unsafe_allow_html=True)
 
-# 제목은 항상 최상단 한 줄. 계정 정보 + 버튼은 그 아래 한 줄에 같이 두되,
-# 제목과는 절대 중첩 컬럼으로 묶지 않는다 — 컬럼마다 붙는 최소 폭이
-# 겹겹이 쌓여 모바일에서 폭이 넘치고 가로 스크롤이 생기기 때문이다.
+# 제목 / 계정 정보 / 전환·삭제 버튼을 각각 별도 줄에 둔다. 한 줄에 같이 넣으면
+# 좁은 화면에서 계정 정보 텍스트가 버튼 칸을 침범해 버튼에 가려지는 문제가 있었다.
 st.markdown("#### 📱 인사교 7기 출결 계산기")
 
 pin_suffix: str = f" (🔑 {st.session_state.user_pin})" if st.session_state.user_pin else ""
-user_col, act_col1, act_col2 = st.columns([4, 1, 1], wrap=False, gap="xsmall", vertical_alignment="center")
-with user_col:
-    # st.caption(≈14px)보다 확실히 크게 보이도록 글자 크기를 직접 지정한다.
-    st.markdown(
-        f'<div style="font-size:17px; font-weight:600; color:#0F172A; white-space:nowrap;">'
-        f'👤 {st.session_state.user_name}{pin_suffix}</div>',
-        unsafe_allow_html=True,
-    )
+# st.caption(≈14px)보다 확실히 크게 보이도록 글자 크기를 직접 지정한다.
+# 줄바꿈을 막지 않아야 좁은 화면에서 다음 줄로 넘어가고, 옆 요소를 침범하지 않는다.
+st.markdown(
+    f'<div style="font-size:17px; font-weight:600; color:#0F172A;">'
+    f'👤 {st.session_state.user_name}{pin_suffix}</div>',
+    unsafe_allow_html=True,
+)
+
+act_col1, act_col2, act_spacer = st.columns([1, 1, 6], wrap=False, gap=24)
 with act_col1:
     if st.button("🔄 전환", key="btn_act_switch", help="다른 사람으로 전환 (이름을 지우고 다시 입력합니다)"):
         del st.query_params["user"]
@@ -458,7 +455,7 @@ st.markdown(f"""
 st.divider()
 
 # 3. 가상 시뮬레이터
-st.subheader("✏️ 출결 시뮬레이터")
+st.markdown("#### ✏️ 출결 시뮬레이터")
 
 col_in1, col_in2 = st.columns(2, wrap=False)
 with col_in1:
@@ -486,7 +483,7 @@ st.info(f"💡 **시뮬레이션 결과:** 출석률 **{sim_result['attendance_r
 st.divider()
 
 # 4. 날짜별 출결 입력 / 저장 / 삭제
-st.subheader("📝 출결 입력")
+st.markdown("#### 📝 출결 입력")
 
 min_date: datetime.date = datetime.date(2026, selected_month, 1)
 max_date: datetime.date = datetime.date(2026, 12, 31) if selected_month == 12 else datetime.date(2026, selected_month + 1, 1) - datetime.timedelta(days=1)
@@ -574,7 +571,7 @@ with st.popover(f"📅 {selected_month}월 조회"):
         st.session_state.selected_month = picked_month
         st.rerun()
 
-st.subheader(f"📜 {selected_month}월 출결 기록 목록")
+st.markdown(f"#### 📜 {selected_month}월 출결 기록 목록")
 
 monthly_records: List[Tuple[str, Dict[str, Any]]] = [
     (d, r) for d, r in st.session_state.daily_records.items()
