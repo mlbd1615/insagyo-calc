@@ -307,26 +307,27 @@ div[data-testid="stHorizontalBlock"]:has(.st-key-btn_act_switch) {
 </style>
 """, unsafe_allow_html=True)
 
-header_title_col, header_user_col = st.columns([2, 3], wrap=False, vertical_alignment="center")
-with header_title_col:
-    st.markdown("#### 📱 인사교 7기 출결 계산기")
-with header_user_col:
-    user_info_col, top_col1, top_col2 = st.columns([3, 1, 1], wrap=False, gap="xsmall", vertical_alignment="center")
-    with user_info_col:
-        pin_suffix: str = f" (🔑 {st.session_state.user_pin})" if st.session_state.user_pin else ""
-        st.caption(f"👤 **{st.session_state.user_name}**{pin_suffix}")
-    with top_col1:
-        if st.button("🔄 전환", key="btn_act_switch", use_container_width=True, help="다른 사람으로 전환 (이름을 지우고 다시 입력합니다)"):
-            del st.query_params["user"]
-            del st.session_state["user_name"]
-            del st.session_state["daily_records"]
-            del st.session_state["all_records"]
-            st.session_state.pop("user_pin", None)
-            st.rerun()
-    with top_col2:
-        if st.button("🗑️ 삭제", key="btn_act_del", use_container_width=True, help="현재 계정(이름/기록/비밀번호)을 서버에서 완전히 삭제합니다."):
-            st.session_state.confirm_delete_account = True
-            st.rerun()
+# 제목은 항상 최상단 한 줄, 계정 정보/버튼은 그 아래 별도 줄에 둔다.
+# 이 둘을 한 줄에 묶어서 중첩 컬럼으로 만들었더니, 컬럼마다 붙는 최소 폭이
+# 겹겹이 쌓여 모바일에서 폭이 넘치고 가로 스크롤이 생겼다.
+st.markdown("#### 📱 인사교 7기 출결 계산기")
+
+pin_suffix: str = f" (🔑 {st.session_state.user_pin})" if st.session_state.user_pin else ""
+st.markdown(f"👤 **{st.session_state.user_name}**{pin_suffix}")
+
+top_col1, top_col2, top_spacer = st.columns([1, 1, 6], wrap=False, gap="xsmall")
+with top_col1:
+    if st.button("🔄 전환", key="btn_act_switch", help="다른 사람으로 전환 (이름을 지우고 다시 입력합니다)"):
+        del st.query_params["user"]
+        del st.session_state["user_name"]
+        del st.session_state["daily_records"]
+        del st.session_state["all_records"]
+        st.session_state.pop("user_pin", None)
+        st.rerun()
+with top_col2:
+    if st.button("🗑️ 삭제", key="btn_act_del", help="현재 계정(이름/기록/비밀번호)을 서버에서 완전히 삭제합니다."):
+        st.session_state.confirm_delete_account = True
+        st.rerun()
 
 if st.session_state.get("confirm_delete_account"):
     st.warning(f"⚠️ '{st.session_state.user_name}' 계정의 기록과 비밀번호를 서버에서 영구 삭제합니다. 되돌릴 수 없습니다.")
