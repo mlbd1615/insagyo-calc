@@ -474,16 +474,18 @@ st.divider()
 
 # 5. 선택 월 기준 목록 출력
 with st.popover(f"📅 {selected_month}월 조회"):
-    grid_cols = st.columns(4, wrap=False, gap=8)
-    for i, m in enumerate(MONTH_OPTIONS):
-        with grid_cols[i % 4]:
-            if st.button(
-                f"{m}월",
-                key=f"jump_month_{m}",
-                type=("primary" if m == selected_month else "secondary"),
-            ):
-                st.session_state.selected_month = m
-                st.rerun()
+    # st.columns는 wrap=False여도 컬럼별 최소 폭이 있어 8개를 다 넣으면 옆으로
+    # 퍼진다. 폭에 맞게 알아서 줄바꿈되는 st.pills로 대체 — 순서도 안 꼬인다.
+    picked_month = st.pills(
+        "월 선택",
+        options=MONTH_OPTIONS,
+        format_func=lambda m: f"{m}월",
+        default=selected_month,
+        label_visibility="collapsed",
+    )
+    if picked_month is not None and picked_month != selected_month:
+        st.session_state.selected_month = picked_month
+        st.rerun()
 
 st.subheader(f"📜 {selected_month}월 출결 기록 목록")
 
