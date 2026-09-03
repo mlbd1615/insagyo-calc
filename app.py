@@ -235,14 +235,86 @@ def delete_user_account(name: str) -> bool:
         latest_all_records[PIN_BUCKET_KEY] = latest_pins
     return save_to_gist(latest_all_records)
 
-st.title("📱 인사교 7기 출결 계산기")
+# 반응형 CSS 주입 (PC/모바일 폭 자동 감응). key로 만든 위젯은 래퍼 요소에
+# "st-key-<key>" 클래스가 붙는다 — key 값 자체가 HTML 속성으로 노출되는 게
+# 아니므로 button[key=...] 같은 선택자는 아무 것도 매치되지 않는다.
+st.markdown("""
+<style>
+.metric-card {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    border-radius: 12px;
+    padding: clamp(12px, 3vw, 18px);
+    margin-bottom: 16px;
+}
+.metric-header {
+    font-size: clamp(14px, 3.5vw, 16px);
+    font-weight: 700;
+    color: #1E293B;
+    margin-bottom: 12px;
+}
+.metric-grid {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 12px;
+}
+.metric-item {
+    flex: 1;
+}
+.metric-divider {
+    width: 1px;
+    height: 36px;
+    background-color: #E2E8F0;
+}
+.metric-label {
+    font-size: clamp(11px, 2.8vw, 13px);
+    color: #64748B;
+    font-weight: 500;
+}
+.metric-val-red {
+    font-size: clamp(22px, 6vw, 28px);
+    font-weight: 800;
+    color: #EF4444;
+    line-height: 1.2;
+    margin-top: 2px;
+}
+.metric-val-blue {
+    font-size: clamp(22px, 6vw, 28px);
+    font-weight: 800;
+    color: #2563EB;
+    line-height: 1.2;
+    margin-top: 2px;
+}
+.metric-footer {
+    border-top: 1px dashed #E2E8F0;
+    padding-top: 10px;
+    font-size: clamp(11px, 2.7vw, 12px);
+    color: #334155;
+    line-height: 1.6;
+}
+div[data-testid="stHorizontalBlock"]:has(.st-key-btn_act_switch) {
+    gap: 4px !important;
+}
+.st-key-btn_act_switch button, .st-key-btn_act_del button {
+    padding: 2px 8px !important;
+    font-size: clamp(10px, 2.6vw, 12px) !important;
+    min-height: 28px !important;
+    height: 28px !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
-pin_suffix: str = f" · 🔑 비밀번호: **{st.session_state.user_pin}**" if st.session_state.user_pin else ""
+st.markdown("### 📱 인사교 7기 출결 계산기")
+
+pin_suffix: str = f" (비밀번호 🔑 {st.session_state.user_pin})" if st.session_state.user_pin else ""
 st.caption(f"👤 사용자명: **{st.session_state.user_name}**{pin_suffix}")
 
 top_col1, top_col2, top_spacer = st.columns([1, 1, 6], wrap=False, gap="xsmall")
 with top_col1:
-    if st.button("🔄 전환", help="다른 사람으로 전환 (이름을 지우고 다시 입력합니다)"):
+    if st.button("🔄 전환", key="btn_act_switch", use_container_width=True, help="다른 사람으로 전환 (이름을 지우고 다시 입력합니다)"):
         del st.query_params["user"]
         del st.session_state["user_name"]
         del st.session_state["daily_records"]
@@ -250,7 +322,7 @@ with top_col1:
         st.session_state.pop("user_pin", None)
         st.rerun()
 with top_col2:
-    if st.button("🗑️ 삭제", help="현재 계정(이름/기록/비밀번호)을 서버에서 완전히 삭제합니다."):
+    if st.button("🗑️ 삭제", key="btn_act_del", use_container_width=True, help="현재 계정(이름/기록/비밀번호)을 서버에서 완전히 삭제합니다."):
         st.session_state.confirm_delete_account = True
         st.rerun()
 
@@ -294,9 +366,7 @@ selected_month: int = st.session_state.selected_month
 base_info: Dict[str, Any] = attendance.calculate_attendance_tool(month=selected_month)
 max_official_limit: int = int(base_info['max_official_leave'])
 
-# 2. 📊 출결 현황판
-st.subheader(f"📊 {selected_month}월 출결 현황판")
-
+# 2. 📊 출결 현황판 (헤더는 카드 안에 포함 — 아래 st.markdown 카드 참고)
 # 당월 확정 집계 연산 (NumPy 벡터화)
 monthly_list: List[Dict[str, Any]] = [
     rec for d_str, rec in st.session_state.daily_records.items()
@@ -347,26 +417,35 @@ converted_absent: int = (cal_tardy // 3) + (cal_early // 3) + (cal_out // 3)
 net_total_absent: int = cal_absent + converted_absent
 remaining_safe_absent: int = max(0, max_allowed_absent - net_total_absent)
 
-m_col1, m_col2 = st.columns(2)
-with m_col1:
-    st.metric("🔥 남은 결석 가능 일수", f"{remaining_safe_absent}일")
-with m_col2:
-    st.metric("현재 출석률", f"{result['attendance_rate']} %")
-
 rem_official_days: int = max_official_limit - cal_official
-st.caption(f"🏛️ **공가 사용 현황:** {cal_official}일 사용 / 총 {max_official_limit}일 가능 (남은 찬스: {rem_official_days}일)")
-
-st.markdown("##### ⏳ 1결석 추가 차감까지 남은 찬스")
 rem_tardy: int = 3 - (cal_tardy % 3) if (cal_tardy % 3) != 0 else 3
 rem_early: int = 3 - (cal_early % 3) if (cal_early % 3) != 0 else 3
 rem_out: int = 3 - (cal_out % 3) if (cal_out % 3) != 0 else 3
 
-# 세로로 한 줄씩 표시 — 한 줄로 붙이면 모바일 폭에서 단어 중간이 잘려 보인다.
-# st.caption은 옅은 회색이라 가독성이 떨어져서, 소제목(#####)보다는 작지만
-# st.caption보다는 진하고 큰 st.markdown 기본 텍스트로 표시한다.
-st.markdown(f"⏰ 지각 잔여 **{rem_tardy}회** (누적 {cal_tardy}회)")
-st.markdown(f"🏃 조퇴 잔여 **{rem_early}회** (누적 {cal_early}회)")
-st.markdown(f"🚶 외출 잔여 **{rem_out}회** (누적 {cal_out}회)")
+# 카드 하나에 핵심 수치를 모아서 PC/모바일 모두 스크롤 없이 한눈에 들어오게 한다.
+# clamp()로 화면 폭에 비례해 글자 크기가 자동 조절된다.
+st.markdown(f"""
+<div class="metric-card">
+    <div class="metric-header">
+        📊 {selected_month}월 출결 현황판
+    </div>
+    <div class="metric-grid">
+        <div class="metric-item">
+            <div class="metric-label">🔥 남은 결석 가능</div>
+            <div class="metric-val-red">{remaining_safe_absent}일</div>
+        </div>
+        <div class="metric-divider"></div>
+        <div class="metric-item">
+            <div class="metric-label">현재 출석률</div>
+            <div class="metric-val-blue">{result['attendance_rate']}%</div>
+        </div>
+    </div>
+    <div class="metric-footer">
+        <div>🏛️ <b>공가 사용:</b> {cal_official}/{max_official_limit}일 (남은 찬스: {rem_official_days}일)</div>
+        <div>⏳ <b>차감 잔여:</b> 지각 <b>{rem_tardy}회</b> · 조퇴 <b>{rem_early}회</b> · 외출 <b>{rem_out}회</b></div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 st.divider()
 
