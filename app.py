@@ -240,7 +240,7 @@ st.title("📱 인사교 7기 출결 계산기")
 pin_suffix: str = f" · 🔑 비밀번호: **{st.session_state.user_pin}**" if st.session_state.user_pin else ""
 st.caption(f"👤 사용자명: **{st.session_state.user_name}**{pin_suffix}")
 
-top_col1, top_col2 = st.columns(2, wrap=False)
+top_col1, top_col2, top_spacer = st.columns([1, 1, 6], wrap=False, gap="xsmall")
 with top_col1:
     if st.button("🔄 전환", help="다른 사람으로 전환 (이름을 지우고 다시 입력합니다)"):
         del st.query_params["user"]
@@ -474,7 +474,7 @@ st.divider()
 
 # 5. 선택 월 기준 목록 출력
 with st.popover(f"📅 {selected_month}월 조회"):
-    grid_cols = st.columns(4, wrap=False, gap="xxsmall")
+    grid_cols = st.columns(4, wrap=False, gap=8)
     for i, m in enumerate(MONTH_OPTIONS):
         with grid_cols[i % 4]:
             if st.button(
