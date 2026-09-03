@@ -307,16 +307,21 @@ div[data-testid="stHorizontalBlock"]:has(.st-key-btn_act_switch) {
 </style>
 """, unsafe_allow_html=True)
 
-# 제목은 항상 최상단 한 줄, 계정 정보/버튼은 그 아래 별도 줄에 둔다.
-# 이 둘을 한 줄에 묶어서 중첩 컬럼으로 만들었더니, 컬럼마다 붙는 최소 폭이
-# 겹겹이 쌓여 모바일에서 폭이 넘치고 가로 스크롤이 생겼다.
+# 제목은 항상 최상단 한 줄. 계정 정보 + 버튼은 그 아래 한 줄에 같이 두되,
+# 제목과는 절대 중첩 컬럼으로 묶지 않는다 — 컬럼마다 붙는 최소 폭이
+# 겹겹이 쌓여 모바일에서 폭이 넘치고 가로 스크롤이 생기기 때문이다.
 st.markdown("#### 📱 인사교 7기 출결 계산기")
 
 pin_suffix: str = f" (🔑 {st.session_state.user_pin})" if st.session_state.user_pin else ""
-st.markdown(f"👤 **{st.session_state.user_name}**{pin_suffix}")
-
-top_col1, top_col2, top_spacer = st.columns([1, 1, 6], wrap=False, gap="xsmall")
-with top_col1:
+user_col, act_col1, act_col2 = st.columns([4, 1, 1], wrap=False, gap="xsmall", vertical_alignment="center")
+with user_col:
+    # st.caption(≈14px)보다 확실히 크게 보이도록 글자 크기를 직접 지정한다.
+    st.markdown(
+        f'<div style="font-size:17px; font-weight:600; color:#0F172A; white-space:nowrap;">'
+        f'👤 {st.session_state.user_name}{pin_suffix}</div>',
+        unsafe_allow_html=True,
+    )
+with act_col1:
     if st.button("🔄 전환", key="btn_act_switch", help="다른 사람으로 전환 (이름을 지우고 다시 입력합니다)"):
         del st.query_params["user"]
         del st.session_state["user_name"]
@@ -324,7 +329,7 @@ with top_col1:
         del st.session_state["all_records"]
         st.session_state.pop("user_pin", None)
         st.rerun()
-with top_col2:
+with act_col2:
     if st.button("🗑️ 삭제", key="btn_act_del", help="현재 계정(이름/기록/비밀번호)을 서버에서 완전히 삭제합니다."):
         st.session_state.confirm_delete_account = True
         st.rerun()
